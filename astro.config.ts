@@ -37,6 +37,8 @@ export default defineConfig({
     },
   },
   markdown: {
+    // Mermaid blocks are rendered client-side by src/scripts/mermaid.ts.
+    syntaxHighlight: { type: "shiki", excludeLangs: ["mermaid"] },
     processor: unified({
       remarkPlugins: [
         remarkToc,

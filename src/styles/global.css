@@ -45,3 +45,44 @@ html[data-width="full"] {
 :target {
   scroll-margin-block: 1rem;
 }
+
+/* Mermaid diagrams (see scripts/mermaid.ts) */
+.mermaid-figure {
+  @apply border-border relative my-6 cursor-zoom-in rounded-md border p-3;
+}
+.mermaid-frame {
+  @apply flex max-h-[70vh] w-full justify-center overflow-hidden;
+}
+.mermaid-frame svg {
+  max-width: 100%;
+  max-height: calc(70vh - 1.5rem);
+  width: auto;
+  height: auto;
+}
+.mermaid-hint {
+  @apply bg-background/80 text-muted-foreground absolute right-2 bottom-2 rounded px-2 py-0.5 text-xs opacity-0 transition-opacity;
+}
+.mermaid-figure:hover .mermaid-hint,
+.mermaid-figure:focus-visible .mermaid-hint {
+  @apply opacity-100;
+}
+.mermaid-error {
+  @apply cursor-default text-sm text-red-600;
+}
+.mermaid-viewer {
+  @apply bg-background fixed inset-0 z-50;
+}
+.mermaid-viewer-stage {
+  @apply absolute inset-0 cursor-grab overflow-hidden select-none active:cursor-grabbing;
+  touch-action: none;
+}
+.mermaid-viewer-stage svg {
+  @apply absolute top-0 left-0 max-w-none;
+  transform-origin: 0 0;
+}
+.mermaid-viewer-bar {
+  @apply border-border bg-background absolute top-4 right-4 flex gap-1 rounded-md border p-1 shadow;
+}
+.mermaid-viewer-bar button {
+  @apply hover:text-accent size-9 rounded text-lg;
+}
