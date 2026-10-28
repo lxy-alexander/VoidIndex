@@ -1,10 +1,10 @@
 const WIDTH_KEY = "page-width";
-const WIDTHS = ["normal", "wide", "full"] as const;
+const WIDTHS = ["narrow", "compact", "medium", "wide", "full"] as const;
 type Width = (typeof WIDTHS)[number];
 
 function getStoredWidth(): Width {
   const stored = localStorage.getItem(WIDTH_KEY) as Width | null;
-  return stored && WIDTHS.includes(stored) ? stored : "normal";
+  return stored && WIDTHS.includes(stored) ? stored : "medium";
 }
 
 let widthValue: Width = getStoredWidth();

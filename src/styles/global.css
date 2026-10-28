@@ -23,12 +23,19 @@
 }
 
 @utility max-w-app {
-  max-width: var(--app-max-width, var(--container-3xl));
+  max-width: var(--app-max-width, var(--container-6xl));
 }
 
-/* Page width chosen with the header's width button (see scripts/width.ts). */
+/* Page width chosen with the header's width button (see scripts/width.ts).
+   "medium" is the default and uses the fallback above. */
+html[data-width="narrow"] {
+  --app-max-width: var(--container-3xl);
+}
+html[data-width="compact"] {
+  --app-max-width: var(--container-5xl);
+}
 html[data-width="wide"] {
-  --app-max-width: var(--container-6xl);
+  --app-max-width: var(--container-7xl);
 }
 html[data-width="full"] {
   --app-max-width: 100%;
