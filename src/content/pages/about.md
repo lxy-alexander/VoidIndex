@@ -1,37 +1,18 @@
 ---
 title: "About"
-description: "A bit about me and this blog."
+description: "About Alexander Lee and VoidIndex."
 ---
 
-AstroPaper is a minimal, accessible and SEO-friendly blog theme built with [Astro](https://astro.build/) and [Tailwind CSS](https://tailwindcss.com/).
+I'm Alexander Lee. **VoidIndex** is where I document my work and learning across modern AI systems.
 
-![Astro Paper](@/assets/images/astropaper-og.jpg)
+## What I write about
 
-AstroPaper provides a solid foundation for blogs, or even portfolios\_ with full markdown support, built-in dark mode, and a clean layout that works out-of-the-box.
+- **Model inference** — serving architectures, scheduling, KV-cache systems, quantization, and distributed inference.
+- **High-performance kernels** — CUDA, Triton, memory hierarchies, tiling, and performance analysis.
+- **Agentic reinforcement learning** — training, evaluation, reasoning, tool use, and reliable autonomous agents.
 
-The blog posts in this theme also serve as guides, docs or example articles\_ making AstroPaper a flexible starting point for your next content-driven site.
+My goal is to turn implementation details, experiments, and research papers into practical technical notes.
 
-## Features
+## Elsewhere
 
-AstroPaper comes with a set of useful features that make content publishing easy and effective:
-
-- SEO-friendly
-- Fast performance
-- Light & dark mode
-- Highly customizable
-- Organizable blog posts
-- Responsive & accessible
-- Static search with [PageFind](https://pagefind.app/)
-- Automatic social image generation
-
-and so much more.
-
-## Show your support
-
-If you like [AstroPaper](https://github.com/satnaing/astro-paper), consider giving it a star ⭐️.
-
-Found a bug 🐛 or have an improvement ✨ in mind? Feel free to open an [issue](https://github.com/satnaing/astro-paper/issues), submit a [pull request](https://github.com/satnaing/astro-paper/pulls) or start a [discussion](https://github.com/satnaing/astro-paper/discussions).
-
-If you find this theme helpful, you can also [sponsor me on GitHub](https://github.com/sponsors/satnaing) or [buy me a coffee](https://buymeacoffee.com/satnaing) to show your support — every penny counts.
-
-Kyay zuu! 🙏🏼
+You can find my projects and open-source work on [GitHub](https://github.com/lxy-alexander).
