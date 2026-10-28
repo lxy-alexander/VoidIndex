@@ -23,7 +23,15 @@
 }
 
 @utility max-w-app {
-  @apply max-w-3xl;
+  max-width: var(--app-max-width, var(--container-3xl));
+}
+
+/* Page width chosen with the header's width button (see scripts/width.ts). */
+html[data-width="wide"] {
+  --app-max-width: var(--container-6xl);
+}
+html[data-width="full"] {
+  --app-max-width: 100%;
 }
 
 @utility app-layout {
