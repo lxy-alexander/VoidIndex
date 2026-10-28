@@ -60,6 +60,9 @@
     }
 
     table {
+      /* Scroll wide tables sideways instead of overflowing the article. */
+      @apply block max-w-full overflow-x-auto;
+
       th,
       td {
         @apply border-border border p-2;
