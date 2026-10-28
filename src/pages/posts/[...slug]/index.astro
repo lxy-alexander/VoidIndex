@@ -110,9 +110,18 @@ const ogImage = ogImageUrl
 
   <main
     id="main-content"
-    class:list={["app-layout", { "mt-8": !config.features.showBackButton }]}
+    class:list={[
+      "app-layout relative",
+      { "mt-8": !config.features.showBackButton },
+    ]}
     data-pagefind-body
   >
+    <aside id="toc-aside" class="toc-aside" aria-label="On this page" hidden>
+      <nav class="toc-aside-nav">
+        <p class="toc-aside-title">On this page</p>
+        <ul></ul>
+      </nav>
+    </aside>
     <h1
       style={{ viewTransitionName: toTransitionName(post.id) }}
       class="text-accent inline-block text-2xl font-bold sm:text-3xl"
@@ -531,4 +540,8 @@ const ogImage = ogImageUrl
   document.addEventListener("astro:after-swap", () =>
     window.scrollTo({ left: 0, top: 0, behavior: "instant" })
   );
+</script>
+
+<script>
+  import "@/scripts/toc";
 </script>

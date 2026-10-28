@@ -93,3 +93,39 @@ html[data-width="full"] {
 .mermaid-viewer-bar button {
   @apply hover:text-accent size-9 rounded text-lg;
 }
+
+/* Post "On this page" sidebar (see scripts/toc.ts). On wide screens the
+   post reserves a right-hand column for it; the in-article TOC is hidden. */
+.toc-aside {
+  @apply absolute top-0 right-4 bottom-0 hidden w-56;
+}
+@media (min-width: 64rem) {
+  #main-content.has-toc {
+    padding-right: calc(14rem + 3rem);
+  }
+  #main-content.has-toc .toc-aside {
+    @apply block;
+  }
+  #main-content.has-toc #article h2#table-of-contents,
+  #main-content.has-toc #article h2#table-of-contents + details {
+    @apply hidden;
+  }
+}
+.toc-aside-nav {
+  @apply sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto text-sm;
+}
+.toc-aside-title {
+  @apply text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase;
+}
+.toc-aside ul {
+  @apply border-border border-s;
+}
+.toc-aside li a {
+  @apply text-muted-foreground hover:text-foreground -ms-px block border-s-2 border-transparent py-1 ps-3 transition-colors;
+}
+.toc-aside li.toc-h3 a {
+  @apply ps-6;
+}
+.toc-aside li a.active {
+  @apply border-accent text-accent font-medium;
+}
