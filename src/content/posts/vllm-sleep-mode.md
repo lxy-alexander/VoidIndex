@@ -5,19 +5,18 @@ pubDatetime: 2026-10-28T23:30:00Z
 tags:
   - inference
   - vllm
-  - gpu-memory
 draft: false
 ---
 
-Sleep Mode 让 vLLM 进程不退出，只把权重和 KV cache 占的物理显存交出去；唤醒时在原虚拟地址上重新映射，切换从几十秒降到亚秒级 [1][2]。
+Sleep Mode 让 vLLM 进程不退出，只把权重和 KV cache 占的物理显存交出去；唤醒时在原虚拟地址上重新映射，切换从几十秒降到亚秒级 [[1]](https://docs.vllm.ai/en/latest/features/sleep_mode/)[[2]](https://vllm.ai/blog/sleep-mode)。
 
 ## Table of contents
 
 ## 核心要点
 
-- **保留**：进程、CUDA context、分配器、CUDA graph、JIT kernel 缓存。这些正是冷启动慢的原因 [2]。
-- **释放**：物理显存。虚拟地址不变，所以 tensor 指针和 CUDA graph 唤醒后直接可用。
-- **Level 0**：只暂停调度，不释放显存。配合 `release_kv_cache_memory()` 可以只丢 KV cache、保留权重（较新版本才有）[1]。
+- **不重启进程**：CUDA 初始化、CUDA graph 录制、kernel 编译这些准备工作都不用重做。重启慢就慢在这些，而不只是读权重 [[2]](https://vllm.ai/blog/sleep-mode)。
+- **只还显存，不改地址**：睡眠时把显存还给 GPU，但程序里记录的显存地址保持不变；唤醒时在同一地址重新分配。所以模型和 CUDA graph 里存的指针不用更新，醒来直接能用。
+- **Level 0**：只暂停调度，不释放显存。配合 `release_kv_cache_memory()` 可以只丢 KV cache、保留权重（较新版本才有）[[1]](https://docs.vllm.ai/en/latest/features/sleep_mode/)。
 - **Level 1**：权重拷到 CPU，丢 KV cache。唤醒最快，但要够大的 CPU 内存。
 - **Level 2**：权重和 KV cache 都丢。省 CPU 内存，唤醒后要重新加载权重。适合 RLHF 更新权重。
 - **Level 1/2 都会丢 KV cache**。
@@ -35,7 +34,7 @@ Sleep Mode 让 vLLM 进程不退出，只把权重和 KV cache 占的物理显�
 
 ## 原理
 
-`CuMemAllocator` 接管 PyTorch 分配，用 CUDA 虚拟内存把**虚拟地址**和**物理显存**拆开 [3]：
+`CuMemAllocator` 接管 PyTorch 分配，用 CUDA 虚拟内存把**虚拟地址**和**物理显存**拆开 [[3]](https://github.com/vllm-project/vllm/blob/main/vllm/device_allocator/cumem.py)：
 
 ```mermaid
 flowchart LR
@@ -47,7 +46,7 @@ flowchart LR
 ```
 
 - 分配按 tag 分池：`weights`、`kv_cache`、`cudagraph`。
-- `sleep(offload_tags)`：tag 在列表里的先拷到 CPU，然后**全部** unmap。Level 1 和 Level 2 的唯一区别是 `offload_tags` 里有没有 `weights` [3][4]。
+- `sleep(offload_tags)`：tag 在列表里的先拷到 CPU，然后**全部** unmap。Level 1 和 Level 2 的唯一区别是 `offload_tags` 里有没有 `weights` [[3]](https://github.com/vllm-project/vllm/blob/main/vllm/device_allocator/cumem.py)[[4]](https://docs.vllm.ai/en/latest/api/vllm/device_allocator/sleep_mode_backend/)。
 - `wake_up(tags)`：在原地址重新 map，有备份的拷回。可以按 tag 分开唤醒。
 
 ## 用法
@@ -70,7 +69,7 @@ llm.collective_rpc("reload_weights")
 llm.wake_up(tags=["kv_cache"])
 ```
 
-在线服务 [1]：
+在线服务 [[1]](https://docs.vllm.ai/en/latest/features/sleep_mode/)：
 
 ```bash
 VLLM_SERVER_DEV_MODE=1 vllm serve Qwen/Qwen3-0.6B --enable-sleep-mode
@@ -82,7 +81,7 @@ curl -X POST 'localhost:8000/wake_up'
 
 ## 收益
 
-A100、TP=1、vLLM 0.11.0，Qwen3-0.6B 与 Phi-3-vision 轮换 5 次 [2]：
+A100、TP=1、vLLM 0.11.0，Qwen3-0.6B 与 Phi-3-vision 轮换 5 次 [[2]](https://vllm.ai/blog/sleep-mode)：
 
 | | 不用 Sleep | Level 1 | Level 2 |
 |---|---|---|---|
@@ -93,11 +92,11 @@ Level 2 也要从磁盘读权重，快在跳过了进程启动、graph 捕获和
 
 ## 坑
 
-- **先 warm-up 再睡**，否则每次唤醒后首次推理慢 5–7 倍 [2]。
-- `release_kv_cache_memory()` 必须在 Level 0 暂停**完成后**调用；`mode="keep"` 保留的请求唤醒后会重新计算 [1]。
+- **先 warm-up 再睡**，否则每次唤醒后首次推理慢 5–7 倍 [[2]](https://vllm.ai/blog/sleep-mode)。
+- `release_kv_cache_memory()` 必须在 Level 0 暂停**完成后**调用；`mode="keep"` 保留的请求唤醒后会重新计算 [[1]](https://docs.vllm.ai/en/latest/features/sleep_mode/)。
 - Level 0 和 `release_kv_cache_memory()` 只在较新的文档里出现，旧版本（如 v0.10）只有 Level 1/2。
-- CUDA graph 显存默认丢弃后重新捕获；`--sleep-mode-offload-cudagraph` 改为备份，batch size 1 时 decode 慢约 3% [1]。
-- 平台：CUDA、ROCm [1]。
+- CUDA graph 显存默认丢弃后重新捕获；`--sleep-mode-offload-cudagraph` 改为备份，batch size 1 时 decode 慢约 3% [[1]](https://docs.vllm.ai/en/latest/features/sleep_mode/)。
+- 平台：CUDA、ROCm [[1]](https://docs.vllm.ai/en/latest/features/sleep_mode/)。
 
 ## References
 
