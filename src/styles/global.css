@@ -107,7 +107,9 @@ html[data-width="full"] {
     @apply block;
   }
   #main-content.has-toc #article h2#table-of-contents,
-  #main-content.has-toc #article h2#table-of-contents + details {
+  #main-content.has-toc #article h2#table-of-contents + details,
+  #main-content.has-toc #article h2#table-of-contents + p:empty,
+  #main-content.has-toc #article h2#table-of-contents + p:empty + details {
     @apply hidden;
   }
 }
@@ -128,4 +130,17 @@ html[data-width="full"] {
 }
 .toc-aside li a.active {
   @apply border-accent text-accent font-medium;
+}
+
+/* Softer Mermaid shapes: rounded nodes, plain edge labels. */
+.mermaid-figure svg .node rect,
+.mermaid-figure svg .cluster rect,
+.mermaid-viewer svg .node rect,
+.mermaid-viewer svg .cluster rect {
+  rx: 8px;
+  ry: 8px;
+}
+.mermaid-figure svg .edgeLabel,
+.mermaid-viewer svg .edgeLabel {
+  @apply text-xs;
 }

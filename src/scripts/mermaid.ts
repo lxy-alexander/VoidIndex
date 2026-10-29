@@ -15,6 +15,60 @@ function isDark(): boolean {
   return document.documentElement.classList.contains("dark");
 }
 
+// Blend two #rrggbb colours; t = 0 gives a, t = 1 gives b.
+function mix(a: string, b: string, t: number): string {
+  const channel = (hex: string, i: number) =>
+    parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return (
+    "#" +
+    [0, 1, 2]
+      .map(i =>
+        Math.round(channel(a, i) * (1 - t) + channel(b, i) * t)
+          .toString(16)
+          .padStart(2, "0")
+      )
+      .join("")
+  );
+}
+
+// Mermaid theme built from the site's colour tokens (styles/theme.css).
+function themeVariables(): Record<string, string> {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name: string) => css.getPropertyValue(name).trim();
+  const bg = token("--background");
+  const fg = token("--foreground");
+  const accent = token("--accent");
+  const muted = token("--muted-foreground");
+  return {
+    darkMode: String(isDark()),
+    background: bg,
+    fontFamily: css.getPropertyValue("--font-app").trim() || "monospace",
+    fontSize: "14px",
+    primaryColor: mix(bg, accent, 0.1),
+    primaryBorderColor: accent,
+    primaryTextColor: fg,
+    secondaryColor: mix(bg, muted, 0.12),
+    secondaryBorderColor: muted,
+    secondaryTextColor: fg,
+    tertiaryColor: mix(bg, accent, 0.04),
+    tertiaryBorderColor: mix(bg, muted, 0.5),
+    tertiaryTextColor: fg,
+    lineColor: muted,
+    textColor: fg,
+    edgeLabelBackground: bg,
+    clusterBkg: mix(bg, accent, 0.04),
+    clusterBorder: mix(bg, muted, 0.5),
+    noteBkgColor: mix(bg, accent, 0.06),
+    noteBorderColor: accent,
+    noteTextColor: fg,
+    actorBkg: mix(bg, accent, 0.1),
+    actorBorder: accent,
+    actorTextColor: fg,
+    signalColor: muted,
+    signalTextColor: fg,
+  };
+}
+
 async function renderAll(): Promise<void> {
   const figures = [
     ...document.querySelectorAll<HTMLElement>(".mermaid-figure"),
@@ -37,7 +91,14 @@ async function renderAll(): Promise<void> {
   const { default: mermaid } = await import("mermaid");
   mermaid.initialize({
     startOnLoad: false,
-    theme: isDark() ? "dark" : "default",
+    theme: "base",
+    themeVariables: themeVariables(),
+    flowchart: {
+      curve: "basis",
+      padding: 12,
+      nodeSpacing: 40,
+      rankSpacing: 50,
+    },
     securityLevel: "strict",
   });
 
