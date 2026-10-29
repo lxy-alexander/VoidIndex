@@ -95,7 +95,7 @@ html[data-width="full"] {
 }
 
 /* Post "On this page" sidebar (see scripts/toc.ts). On wide screens the
-   post reserves a right-hand column for it; the in-article TOC is hidden. */
+   post reserves a right-hand column for it. */
 .toc-aside {
   @apply absolute top-0 right-4 bottom-0 hidden w-56;
 }
@@ -105,12 +105,6 @@ html[data-width="full"] {
   }
   #main-content.has-toc .toc-aside {
     @apply block;
-  }
-  #main-content.has-toc #article h2#table-of-contents,
-  #main-content.has-toc #article h2#table-of-contents + details,
-  #main-content.has-toc #article h2#table-of-contents + p:empty,
-  #main-content.has-toc #article h2#table-of-contents + p:empty + details {
-    @apply hidden;
   }
 }
 .toc-aside-nav {
@@ -129,7 +123,10 @@ html[data-width="full"] {
   @apply ps-6;
 }
 .toc-aside li a.active {
-  @apply border-accent text-accent font-medium;
+  @apply border-accent text-foreground rounded-e bg-[#fff3df] font-medium;
+}
+html.dark .toc-aside li a.active {
+  @apply bg-accent/15;
 }
 
 /* Softer Mermaid shapes: rounded nodes, plain edge labels. */

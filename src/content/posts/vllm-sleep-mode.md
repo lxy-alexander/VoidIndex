@@ -10,8 +10,6 @@ draft: false
 
 Sleep Mode keeps the vLLM process alive and hands back only the physical GPU memory used by weights and KV cache; on wake-up it remaps memory at the same virtual addresses, cutting a model switch from tens of seconds to under a second [[1]](https://docs.vllm.ai/en/latest/features/sleep_mode/)[[2]](https://vllm.ai/blog/sleep-mode).
 
-## Table of contents
-
 ## Key points
 
 - **No process restart**: CUDA initialization, CUDA graph capture, and kernel compilation don't have to be redone. That setup — not just loading weights — is what makes a restart slow [[2]](https://vllm.ai/blog/sleep-mode).
