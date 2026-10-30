@@ -17,7 +17,9 @@ let blocks: Block[] = [];
 // Inline HTML back to Markdown: bold, italic, code and links survive.
 function toMarkdown(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
-    return (node.textContent ?? "").replace(/ /g, " ");
+    return (node.textContent ?? "")
+      .replace(/\u00a0/g, " ")
+      .replace(/\u200b/g, "");
   }
   if (!(node instanceof HTMLElement)) return "";
   const inner = () => [...node.childNodes].map(toMarkdown).join("");
@@ -180,11 +182,66 @@ async function save(path: string): Promise<boolean> {
   return true;
 }
 
+// Markdown typed inline turns into formatting as soon as it is closed,
+// like Typora or a live Markdown preview.
+const SHORTCUTS: [RegExp, (m: RegExpMatchArray) => HTMLElement][] = [
+  [/\[([^\]]+)\]\(([^)\s]+)\)$/, m => el("a", m[1], m[2])],
+  [/\*\*([^*]+)\*\*$/, m => el("strong", m[1])],
+  [/(?<!\*)\*([^*\s][^*]*)\*$/, m => el("em", m[1])],
+  [/`([^`]+)`$/, m => el("code", m[1])],
+];
+
+function el(tag: string, text: string, href?: string): HTMLElement {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  if (href) node.setAttribute("href", href);
+  return node;
+}
+
+function applyShortcut(): void {
+  const sel = getSelection();
+  const node = sel?.anchorNode;
+  if (!sel?.isCollapsed || !(node instanceof Text)) return;
+  const offset = sel.anchorOffset;
+  const typed = node.data.slice(0, offset);
+  for (const [pattern, make] of SHORTCUTS) {
+    const m = typed.match(pattern);
+    if (!m) continue;
+    // A zero-width space gives the caret somewhere to sit after the new tag.
+    const rest = node.data.slice(offset) || "​";
+    node.data = node.data.slice(0, offset - m[0].length);
+    const tail = document.createTextNode(rest);
+    node.after(make(m), tail);
+    sel.collapse(tail, rest === "​" ? 1 : 0);
+    return;
+  }
+}
+
+// Place the button midway between the article and the Content sidebar,
+// halfway down the screen; fall back to the corner when there is no sidebar.
+function placeButton(btn: HTMLElement): void {
+  const article = document.querySelector("#article");
+  const toc = document.querySelector("#toc-aside .toc-aside-nav");
+  const tocBox = toc?.getBoundingClientRect();
+  if (!article || !tocBox || tocBox.width === 0) {
+    btn.style.removeProperty("left");
+    btn.style.removeProperty("top");
+    return;
+  }
+  const gapStart = article.getBoundingClientRect().right;
+  btn.style.left = `${(gapStart + tocBox.left) / 2 - btn.offsetWidth / 2}px`;
+  btn.style.top = `calc(50% - ${btn.offsetHeight / 2}px)`;
+}
+
 function setupEdit(): void {
   const btn = document.querySelector<HTMLButtonElement>("#edit-btn");
   const article = document.querySelector<HTMLElement>("#article");
   const path = article?.dataset.path;
   if (!btn || !article || !path) return;
+
+  placeButton(btn);
+  window.addEventListener("resize", () => placeButton(btn));
+  article.addEventListener("input", applyShortcut);
 
   const setMode = (editing: boolean) => {
     btn.dataset.mode = editing ? "editing" : "idle";

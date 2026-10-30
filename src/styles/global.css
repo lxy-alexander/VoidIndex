@@ -186,10 +186,10 @@ html[data-font] .font-app {
   @apply bg-accent text-accent-foreground animate-pulse;
 }
 #article.editing [contenteditable="true"] {
-  @apply outline-accent/40 rounded-sm outline-1 outline-offset-2 outline-dashed;
+  @apply outline-none;
 }
-#article.editing [contenteditable="true"]:focus {
-  @apply bg-accent/5 outline-accent outline-solid;
+.edit-btn[style*="left"] {
+  @apply right-auto bottom-auto;
 }
 .edit-toast {
   @apply bg-foreground text-background fixed right-6 bottom-22 z-50 max-w-sm rounded-md px-4 py-3 text-sm shadow-lg;
