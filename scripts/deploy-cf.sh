@@ -9,7 +9,9 @@ cd "$(dirname "$0")/.."
 
 export CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-1f1357c6bd74676420403146f10c3b75}"
 
-pnpm run build
+# Publishing notes doesn't change code, so skip the ~15 s type check here;
+# `pnpm run build` on its own still runs it.
+SKIP_CHECK=1 pnpm run build
 # Cache rules for Cloudflare (kept out of public/, which Vite tries to parse).
 cp scripts/cf-headers dist/_headers
 pnpm exec wrangler pages deploy dist --project-name voidindex --branch main --commit-dirty=true
