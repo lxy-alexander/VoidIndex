@@ -365,3 +365,25 @@ samp {
 .diff-fold {
   @apply bg-muted/60 text-muted-foreground hover:text-foreground block w-full px-3 py-1 text-left text-xs;
 }
+/* Floating format toolbar (scripts/edit.ts) */
+.format-bar {
+  @apply bg-background border-border fixed z-50 flex items-center gap-0.5 rounded-xl border px-1.5 py-1 shadow-lg;
+}
+.format-bar[hidden] {
+  @apply hidden;
+}
+.format-bar button {
+  @apply text-muted-foreground hover:bg-muted hover:text-foreground flex size-8 items-center justify-center rounded-md;
+}
+.format-bar svg {
+  @apply size-[18px];
+}
+.format-sep {
+  @apply bg-border mx-1 h-5 w-px;
+}
+#article.editing {
+  @apply outline-none;
+}
+#article [contenteditable="false"] {
+  @apply cursor-default;
+}

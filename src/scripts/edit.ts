@@ -25,6 +25,22 @@ function units(withDeleted = false): HTMLElement[] {
 
 // Inline Markdown of each existing block when edit mode started.
 let before = new Map<string, string>();
+// Source range of each existing block when editing (re)started, by uid.
+let original = new Map<string, { s: number; e: number }>();
+
+function remember(): void {
+  before = new Map(units().map(el => [uid(el), unitMarkdown(el)]));
+  original = new Map(
+    units()
+      .filter(
+        el => el.dataset.mdS !== undefined && el.dataset.new === undefined
+      )
+      .map(el => [
+        uid(el),
+        { s: Number(el.dataset.mdS), e: Number(el.dataset.mdE) },
+      ])
+  );
+}
 
 // A stable id per block; it survives undo, which rebuilds the article HTML.
 let nextUid = 0;
@@ -56,6 +72,10 @@ function toMarkdown(node: Node): string {
       return `*${inner()}*`;
     case "CODE":
       return `\`${node.textContent ?? ""}\``;
+    case "S":
+    case "STRIKE":
+    case "DEL":
+      return `~~${inner()}~~`;
     case "MARK":
       return `<mark>${inner()}</mark>`;
     case "A":
@@ -269,6 +289,16 @@ function buildEdits(body: string, raw: string, bodyStart: number): Edit[] {
     el.dataset.dirty = "";
   }
   flush();
+
+  // Blocks removed by deleting a selection that spans several of them: drop
+  // their source lines (marker included) and the blank line after.
+  for (const [id, range] of original) {
+    if (document.querySelector(`#article [data-uid="${id}"]`)) continue;
+    const s = raw.lastIndexOf("\n", bodyStart + range.s - 1) + 1 - bodyStart;
+    let e = range.e;
+    while (body[e] === "\n") e++;
+    edits.push({ s, e, text: "", pieces: [] });
+  }
   return edits;
 }
 
@@ -355,6 +385,7 @@ async function fetchSource(path: string): Promise<string> {
 // Apply this page's edits to the note and keep the result as a local draft.
 async function saveDraft(path: string): Promise<Result> {
   const dirty =
+    removedBlocks() ||
     document.querySelector("#article [data-deleted]") !== null ||
     units().some(
       el =>
@@ -543,8 +574,15 @@ function el(tag: string, text: string, href?: string): HTMLElement {
 function caretUnit(): HTMLElement | null {
   const node = getSelection()?.anchorNode;
   const el = node instanceof Element ? node : node?.parentElement;
-  const unit = el?.closest<HTMLElement>("[contenteditable='true']");
+  const unit = el?.closest<HTMLElement>("[data-md-s], [data-new]");
   return unit && units().includes(unit) ? unit : null;
+}
+
+// Focus the editing host that contains a block (the article, or a table cell).
+function focusHost(el: HTMLElement): void {
+  let host = el;
+  while (host.parentElement?.isContentEditable) host = host.parentElement;
+  host.focus({ preventScroll: true });
 }
 
 // A replacement block keeps the source range of the block it replaces, and
@@ -734,6 +772,8 @@ function atBoundary(unit: HTMLElement, end: boolean): boolean {
 
 // Each block is its own editing host, so arrow keys must hop between them.
 function moveAcross(e: KeyboardEvent, unit: HTMLElement): boolean {
+  // The article is one editing area; only table cells are separate.
+  if (!unit.closest("td, th")) return false;
   const back = e.key === "ArrowUp" || e.key === "ArrowLeft";
   const vertical = e.key === "ArrowUp" || e.key === "ArrowDown";
   const leaving = vertical
@@ -744,7 +784,7 @@ function moveAcross(e: KeyboardEvent, unit: HTMLElement): boolean {
   const next = all[all.indexOf(unit) + (back ? -1 : 1)];
   if (!next) return false;
   e.preventDefault();
-  next.focus();
+  focusHost(next);
   placeCaret(next, back);
   return true;
 }
@@ -912,7 +952,7 @@ function restore(state: Snapshot): void {
     `[data-uid="${state.caret.uid}"]`
   );
   if (!unit) return;
-  unit.focus();
+  focusHost(unit);
   // Walk the text to the saved character offset.
   let left = state.caret.offset;
   const walker = document.createTreeWalker(unit, NodeFilter.SHOW_TEXT);
@@ -1086,6 +1126,7 @@ function onKeyDown(e: KeyboardEvent): void {
       tomb.dataset.mdS = unit.dataset.mdS;
       tomb.dataset.mdE = unit.dataset.mdE;
       tomb.dataset.deleted = "";
+      if (unit.dataset.uid) tomb.dataset.uid = unit.dataset.uid;
       unit.replaceWith(tomb);
     } else {
       unit.remove();
@@ -1116,8 +1157,15 @@ function placeButton(btn: HTMLElement, offsetY = 0): void {
 }
 
 // Whether the article has edits that are not in a saved draft yet.
+function removedBlocks(): boolean {
+  return [...original.keys()].some(
+    id => !document.querySelector(`#article [data-uid="${id}"]`)
+  );
+}
+
 function hasUnsaved(): boolean {
   return (
+    removedBlocks() ||
     document.querySelector("#article [data-deleted]") !== null ||
     units().some(
       el =>
@@ -1126,6 +1174,130 @@ function hasUnsaved(): boolean {
         unitMarkdown(el) !== before.get(uid(el))
     )
   );
+}
+
+// Formatting toolbar that floats above a text selection while editing.
+const FORMATS: { cmd: string; label: string; icon: string }[] = [
+  {
+    cmd: "bold",
+    label: "Bold (⌘B)",
+    icon: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7h-6z" /><path d="M13 12h1a3.5 3.5 0 0 1 0 7h-7v-7" />',
+  },
+  {
+    cmd: "italic",
+    label: "Italic (⌘I)",
+    icon: '<path d="M11 5l6 0" /><path d="M7 19l6 0" /><path d="M14 5l-4 14" />',
+  },
+  {
+    cmd: "strike",
+    label: "Strikethrough",
+    icon: '<path d="M5 12l14 0" /><path d="M16 6.5a4 2 0 0 0 -4 -1.5h-1a3.5 3.5 0 0 0 0 7h2a3.5 3.5 0 0 1 0 7h-1.5a4 2 0 0 1 -4 -1.5" />',
+  },
+  {
+    cmd: "mark",
+    label: "Highlight (⇧⌘H)",
+    icon: '<path d="M3 19h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M12.5 5.5l4 4" />',
+  },
+  {
+    cmd: "code",
+    label: "Inline code (⇧⌘`)",
+    icon: '<path d="M7 8l-4 4l4 4" /><path d="M17 8l4 4l-4 4" /><path d="M14 4l-4 16" />',
+  },
+  {
+    cmd: "link",
+    label: "Link",
+    icon: '<path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" />',
+  },
+  {
+    cmd: "ul",
+    label: "Bullet list (⇧⌘])",
+    icon: '<path d="M9 6l11 0" /><path d="M9 12l11 0" /><path d="M9 18l11 0" /><path d="M5 6l0 .01" /><path d="M5 12l0 .01" /><path d="M5 18l0 .01" />',
+  },
+  {
+    cmd: "ol",
+    label: "Numbered list (⇧⌘[)",
+    icon: '<path d="M11 6h9" /><path d="M11 12h9" /><path d="M12 18h8" /><path d="M4 16a2 2 0 1 1 4 0c0 .591 -.5 1 -1 1.5l-3 2.5h4" /><path d="M6 10v-6l-2 2" />',
+  },
+  {
+    cmd: "quote",
+    label: "Quote (⇧⌘Q)",
+    icon: '<path d="M10 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5" /><path d="M19 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5" />',
+  },
+];
+
+function applyFormat(cmd: string): void {
+  record();
+  const sel = getSelection();
+  if (cmd === "bold" || cmd === "italic") document.execCommand(cmd);
+  else if (cmd === "strike") document.execCommand("strikeThrough");
+  else if (cmd === "mark") toggleHighlight();
+  else if (cmd === "link") {
+    const url = prompt("Link URL")?.trim();
+    if (url) document.execCommand("createLink", false, url);
+  } else if (cmd === "code" && sel && !sel.isCollapsed) {
+    const range = sel.getRangeAt(0);
+    const code = document.createElement("code");
+    code.textContent = range.toString();
+    range.deleteContents();
+    range.insertNode(code);
+  } else {
+    const unit = caretUnit();
+    const kind = cmd === "ul" ? "UL" : cmd === "ol" ? "OL" : "QUOTE";
+    if (unit && convertible(unit)) convert(unit, kind);
+  }
+}
+
+function createFormatBar(article: HTMLElement): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "format-bar";
+  bar.hidden = true;
+  bar.setAttribute("role", "toolbar");
+  for (const { cmd, label, icon } of FORMATS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>`;
+    // Keep the selection when clicking.
+    button.addEventListener("mousedown", e => e.preventDefault());
+    button.addEventListener("click", () => {
+      applyFormat(cmd);
+      bar.hidden = true;
+    });
+    if (cmd === "link" || cmd === "ul")
+      bar.append(
+        Object.assign(document.createElement("span"), {
+          className: "format-sep",
+        })
+      );
+    bar.append(button);
+  }
+  document.body.append(bar);
+
+  document.addEventListener("selectionchange", () => {
+    const sel = getSelection();
+    const range = sel?.rangeCount ? sel.getRangeAt(0) : null;
+    if (
+      !article.classList.contains("editing") ||
+      !range ||
+      range.collapsed ||
+      !article.contains(range.commonAncestorContainer) ||
+      document.querySelector(".review-overlay")
+    ) {
+      bar.hidden = true;
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    bar.hidden = false;
+    const width = bar.offsetWidth;
+    const top = rect.top - bar.offsetHeight - 10;
+    bar.style.top = `${top < 8 ? rect.bottom + 10 : top}px`;
+    bar.style.left = `${Math.min(
+      Math.max(8, rect.left + rect.width / 2 - width / 2),
+      innerWidth - width - 8
+    )}px`;
+  });
+  return bar;
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -1156,6 +1328,16 @@ function setupEdit(): void {
   article.addEventListener("input", onInput);
   article.addEventListener("keydown", onKeyDown);
   article.addEventListener("beforeinput", onBeforeInput);
+  // Paste as plain text, so no foreign HTML ends up in the note.
+  article.addEventListener("paste", e => {
+    if (!article.classList.contains("editing")) return;
+    e.preventDefault();
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    if (!text) return;
+    record();
+    const inCode = !!getSelection()?.anchorNode?.parentElement?.closest("pre");
+    insertText(inCode ? text : text.replace(/\s*\n\s*/g, " "));
+  });
 
   const setMode = (el: HTMLElement, mode: string, label: string) => {
     el.dataset.mode = mode;
@@ -1175,6 +1357,7 @@ function setupEdit(): void {
   };
   refreshPublish();
 
+  const formatBar = createFormatBar(article);
   const undoBtn = document.querySelector<HTMLButtonElement>("#undo-btn")!;
   const redoBtn = document.querySelector<HTMLButtonElement>("#redo-btn")!;
   // Keep focus (and the caret) in the text when clicking these.
@@ -1193,10 +1376,34 @@ function setupEdit(): void {
       placeButton(redoBtn, -60);
     }
     article.classList.toggle("editing", editing);
-    units().forEach(el => {
-      if (editing) el.contentEditable = "true";
-      else el.removeAttribute("contenteditable");
-    });
+    if (!editing) {
+      article.removeAttribute("contenteditable");
+      article
+        .querySelectorAll("[contenteditable]")
+        .forEach(el => el.removeAttribute("contenteditable"));
+      formatBar.hidden = true;
+      return;
+    }
+    // One editing area, so a selection can span blocks and ⌘A selects all.
+    // Code blocks, diagrams and the like stay locked; table cells are
+    // edited one at a time.
+    article.contentEditable = "true";
+    const blocks = new Set(units());
+    for (const child of article.children) {
+      const el = child as HTMLElement;
+      if (blocks.has(el)) continue;
+      if (el.tagName === "TABLE" || el.querySelector("table")) {
+        el.contentEditable = "false";
+        el.querySelectorAll<HTMLElement>("td, th").forEach(cell => {
+          if (blocks.has(cell)) cell.contentEditable = "true";
+        });
+      } else if (![...blocks].some(b => el.contains(b))) {
+        el.contentEditable = "false";
+      }
+    }
+    article
+      .querySelectorAll<HTMLElement>(".heading-link, #md-source")
+      .forEach(el => (el.contentEditable = "false"));
   };
 
   // Run an action with a spinning ring, then flash the result for two seconds.
@@ -1274,7 +1481,7 @@ function setupEdit(): void {
   btn.addEventListener("click", async () => {
     const mode = btn.dataset.mode;
     if (mode === "idle") {
-      before = new Map(units().map(el => [uid(el), unitMarkdown(el)]));
+      remember();
       resetHistory();
       setEditing(true);
       setMode(btn, "editing", "Save draft");
@@ -1290,7 +1497,7 @@ function setupEdit(): void {
     setMode(btn, "editing", "Save draft");
     if (result !== "saved") return;
     // Stay in edit mode; the saved text is the new baseline.
-    before = new Map(units().map(el => [uid(el), unitMarkdown(el)]));
+    remember();
     resetHistory();
     refreshPublish();
   });
