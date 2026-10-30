@@ -6,30 +6,32 @@
  */
 const SIZE_KEY = "page-text-size";
 
-// Article font size per level; "m" is the normal size.
+// Article font size per level. "l" is the default and comes from the CSS
+// (typography.css), so it needs nothing stored.
+const DEFAULT = "l";
 export const SIZES = [
   { id: "xs", label: "Smaller", px: 14 },
   { id: "s", label: "Small", px: 15 },
-  { id: "m", label: "Default", px: 16 },
-  { id: "l", label: "Large", px: 17.5 },
+  { id: "m", label: "Medium", px: 16 },
+  { id: "l", label: "Large (default)", px: 17.5 },
   { id: "xl", label: "Larger", px: 19 },
 ] as const;
 
 function current(): string {
   try {
-    return localStorage.getItem(SIZE_KEY) ?? "m";
+    return localStorage.getItem(SIZE_KEY) ?? DEFAULT;
   } catch {
-    return "m";
+    return DEFAULT;
   }
 }
 
 function apply(id: string): void {
-  const size = SIZES.find(s => s.id === id) ?? SIZES[2];
+  const size = SIZES.find(s => s.id === id) ?? SIZES[3];
   const root = document.documentElement.style;
-  if (size.id === "m") root.removeProperty("--article-size");
+  if (size.id === DEFAULT) root.removeProperty("--article-size");
   else root.setProperty("--article-size", `${size.px}px`);
   try {
-    if (size.id === "m") localStorage.removeItem(SIZE_KEY);
+    if (size.id === DEFAULT) localStorage.removeItem(SIZE_KEY);
     else localStorage.setItem(SIZE_KEY, size.id);
   } catch {
     // Storage unavailable (private mode): the size still applies to this page.

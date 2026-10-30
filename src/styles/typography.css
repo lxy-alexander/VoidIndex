@@ -5,7 +5,7 @@
   .app-prose {
     @apply prose;
     /* Reader's text size (scripts/textsize.ts); prose sizes are in em. */
-    font-size: var(--article-size, 1rem);
+    font-size: var(--article-size, 17.5px);
 
     h1,
     h2,

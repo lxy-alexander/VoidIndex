@@ -1310,6 +1310,28 @@ function createFormatBar(article: HTMLElement): HTMLElement {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// Whether to show the editing buttons in this browser. Opening any page
+// once with ?edit remembers the browser as the owner's; ?edit=off forgets
+// it. Local previews always show them. Visitors never see them, and nothing
+// can be published without the encrypted token anyway.
+const OWNER_KEY = "voidindex-owner";
+
+function isOwner(): boolean {
+  const param = new URLSearchParams(location.search).get("edit");
+  try {
+    if (param === "off") localStorage.removeItem(OWNER_KEY);
+    else if (param !== null) localStorage.setItem(OWNER_KEY, "1");
+    if (localStorage.getItem(OWNER_KEY)) return true;
+  } catch {
+    // Storage unavailable: fall through to the other checks.
+  }
+  return (
+    (param !== null && param !== "off") ||
+    hasVault() ||
+    ["localhost", "127.0.0.1"].includes(location.hostname)
+  );
+}
+
 function setupEdit(): void {
   const btn = document.querySelector<HTMLButtonElement>("#edit-btn");
   const pub = document.querySelector<HTMLButtonElement>("#publish-btn");
@@ -1319,8 +1341,7 @@ function setupEdit(): void {
 
   // Visitors never see the buttons: they show only once this browser holds an
   // encrypted token, or when the page is opened with ?edit to set one up.
-  const owner = hasVault() || new URLSearchParams(location.search).has("edit");
-  if (!owner) return;
+  if (!isOwner()) return;
   btn.hidden = false;
 
   deployedHash =

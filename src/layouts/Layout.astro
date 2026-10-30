@@ -113,7 +113,7 @@ const rssHref = getRelativeLocaleUrl(
         window.__theme = { value: theme };
         const width = localStorage.getItem("page-width");
         if (width) root?.setAttribute("data-width", width);
-        const textSize = { xs: 14, s: 15, l: 17.5, xl: 19 }[
+        const textSize = { xs: 14, s: 15, m: 16, xl: 19 }[
           localStorage.getItem("page-text-size") ?? ""
         ];
         if (textSize && root) {
