@@ -4,6 +4,8 @@
   /* ===== Override default Tailwind Typography styles ===== */
   .app-prose {
     @apply prose;
+    /* Reader's text size (scripts/textsize.ts); prose sizes are in em. */
+    font-size: var(--article-size, 1rem);
 
     h1,
     h2,

@@ -113,6 +113,12 @@ const rssHref = getRelativeLocaleUrl(
         window.__theme = { value: theme };
         const width = localStorage.getItem("page-width");
         if (width) root?.setAttribute("data-width", width);
+        const textSize = { xs: 14, s: 15, l: 17.5, xl: 19 }[
+          localStorage.getItem("page-text-size") ?? ""
+        ];
+        if (textSize && root) {
+          root.style.setProperty("--article-size", textSize + "px");
+        }
         try {
           const font = JSON.parse(localStorage.getItem("page-font") ?? "null");
           if (font?.url && font?.family) {
@@ -144,6 +150,7 @@ const rssHref = getRelativeLocaleUrl(
       import "@/scripts/theme";
       import "@/scripts/width";
       import "@/scripts/font";
+      import "@/scripts/textsize";
       import "@/scripts/mermaid";
     </script>
   </body>

@@ -8,6 +8,7 @@ import IconSearch from "@/assets/icons/IconSearch.svg";
 import IconMoon from "@/assets/icons/IconMoon.svg";
 import IconArrowsHorizontal from "@/assets/icons/IconArrowsHorizontal.svg";
 import IconTypography from "@/assets/icons/IconTypography.svg";
+import IconTextSize from "@/assets/icons/IconTextSize.svg";
 import IconX from "@/assets/icons/IconX.svg";
 import LinkButton from "./LinkButton.astro";
 import { stripBase, stripLocale } from "@/utils/withBase";
@@ -52,13 +53,13 @@ const isActive = (path: string) => {
   >
     <a
       href={getRelativeLocaleUrl(locale, "")}
-      class="absolute py-1 text-xl leading-8 font-semibold whitespace-nowrap sm:static sm:my-auto sm:text-2xl sm:leading-none"
+      class="absolute py-1 text-xl leading-8 font-semibold whitespace-nowrap sm:static sm:my-auto sm:text-xl sm:leading-none lg:text-2xl"
     >
       {site.title}
     </a>
     <nav
       id="nav-menu"
-      class="flex w-full flex-col items-center sm:ms-2 sm:flex-row sm:justify-end sm:space-x-4 sm:py-0"
+      class="flex w-full flex-col items-center sm:ms-2 sm:flex-row sm:justify-end sm:space-x-2 sm:py-0 lg:space-x-4"
     >
       <button
         id="menu-btn"
@@ -74,7 +75,7 @@ const isActive = (path: string) => {
       </button>
       <ul
         id="menu-items"
-        class="[&>li>a]:hover:text-accent mt-4 hidden w-44 grid-cols-2 place-content-center gap-2 sm:mt-0 sm:flex sm:w-auto sm:gap-x-5 sm:gap-y-0 sm:[&>li]:h-8 [&>li>a]:block [&>li>a]:px-4 [&>li>a]:py-3 [&>li>a]:text-center [&>li>a]:font-medium sm:[&>li>a]:px-2 sm:[&>li>a]:py-1"
+        class="[&>li>a]:hover:text-accent mt-4 hidden w-44 grid-cols-2 place-content-center gap-2 sm:mt-0 sm:flex sm:w-auto sm:gap-x-2 sm:gap-y-0 lg:gap-x-5 sm:[&>li]:h-8 [&>li>a]:block [&>li>a]:px-4 [&>li>a]:py-3 [&>li>a]:text-center [&>li>a]:font-medium sm:[&>li>a]:px-2 sm:[&>li>a]:py-1"
       >
         <li class="col-span-2">
           <a
@@ -180,6 +181,22 @@ const isActive = (path: string) => {
             />
           </button>
           <div id="font-menu" class="font-menu" role="menu" hidden></div>
+        </li>
+        <li class="relative col-span-1 flex items-center justify-center">
+          <button
+            id="size-btn"
+            class="focus-outline hover:[&>svg]:stroke-accent relative size-12 p-4 sm:size-8"
+            title="Text size"
+            aria-label="Text size"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="size-menu"
+          >
+            <IconTextSize
+              class="absolute top-[50%] left-[50%] translate-[-50%]"
+            />
+          </button>
+          <div id="size-menu" class="font-menu size-menu" role="menu" hidden></div>
         </li>
       </ul>
     </nav>

@@ -387,3 +387,13 @@ samp {
 #article [contenteditable="false"] {
   @apply cursor-default;
 }
+/* Text size menu (scripts/textsize.ts); reuses .font-menu for the panel. */
+.size-menu {
+  @apply w-44;
+}
+.size-item {
+  @apply flex items-center gap-3;
+}
+.size-sample {
+  @apply w-8 font-semibold leading-none;
+}
