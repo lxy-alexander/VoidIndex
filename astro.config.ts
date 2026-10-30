@@ -22,7 +22,6 @@ import config from "./astro-paper.config";
 
 export default defineConfig({
   site: new URL(config.site.url).origin,
-  base: "/VoidIndex",
   integrations: [
     mdx(),
     sitemap({

@@ -6,7 +6,7 @@ Hi, I'm **Alexander Lee**. VoidIndex is where I write about my work and learning
 - **High-performance kernels**: CUDA, Triton, memory hierarchies, tiling, and performance analysis
 - **Agentic reinforcement learning**: training, evaluation, reasoning, tool use, and reliable autonomous agents
 
-📖 Blog: [lxy-alexander.github.io/VoidIndex](https://lxy-alexander.github.io/VoidIndex/)
+📖 Blog: [voidindex.dev](https://voidindex.dev/)
 💻 GitHub: [@lxy-alexander](https://github.com/lxy-alexander)
 
 ---
