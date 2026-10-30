@@ -188,6 +188,10 @@ html[data-font] .font-app {
 #article.editing [contenteditable="true"] {
   @apply outline-none;
 }
+#article.editing [contenteditable="true"],
+#article.editing [contenteditable="true"] * {
+  @apply cursor-text;
+}
 .edit-btn[style*="left"] {
   @apply right-auto bottom-auto;
 }
