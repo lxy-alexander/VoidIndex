@@ -26,7 +26,7 @@ flowchart TD
 
 - **It's the same TP in both.** TP in PyTorch and TP in vLLM split the weight matrices the same way. What differs is what runs around the split: training also has a backward pass, gradients and an optimizer.
 
-## Unified comparison
+## Comparison
 
 | Concept | General meaning | Training | Inference |
 |---|---|---|---|
@@ -151,7 +151,7 @@ Per-GPU model-state memory (GB) for a 7.5B model under ZeRO, mixed-precision Ada
 
 For scale: Megatron-LM trained a 1T-parameter GPT on 3072 A100s with TP = 8 and PP = 64, reaching 502 PFLOP/s, 52% of peak [[5]](https://arxiv.org/abs/2104.04473).
 
-## Which ones vLLM supports
+## vLLM support
 
 vLLM supports every strategy that splits weights, KV cache or requests. The training-only ones have nothing to shard at inference time.
 

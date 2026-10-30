@@ -24,7 +24,7 @@ Pick TRL to get started, OpenRLHF or verl for a general Ray-based RL stack, slim
 
 Exact feature sets move fast; check each repo's latest docs before choosing [[5]](https://github.com/OpenRLHF/OpenRLHF)[[6]](https://github.com/huggingface/trl)[[7]](https://github.com/NVIDIA-NeMo/RL)[[8]](https://github.com/alibaba/ROLL)[[9]](https://github.com/THUDM/slime)[[10]](https://github.com/inclusionAI/AReaL).
 
-## What every framework has to solve
+## Shared problem
 
 ```mermaid
 flowchart LR
@@ -39,7 +39,7 @@ flowchart LR
 - **Two layouts for one model**: training shards weights for memory; generation wants tensor-parallel weights plus a KV cache. Switching between them costs time.
 - **GPU scheduling**: either training and generation take turns on the same GPUs (colocate) or run on separate GPUs at the same time (disaggregate).
 
-## The frameworks in detail
+## Frameworks
 
 ### verl
 
@@ -277,54 +277,76 @@ flowchart LR
 
 **Use it when**: generation time dominates your RL steps and you want fully async training.
 
-## Key system optimizations
+## Key optimizations
 
 These ideas show up across all the frameworks. Each gets one line to remember, then what it actually does.
 
-### Async rollout — "don't wait for the slowest one"
+### Async rollout
+
+*don't wait for the slowest one*
 
 In sync RL, a batch finishes only when its longest answer finishes; the other GPUs sit idle. Async rollout lets finished samples move on to reward and training while long ones keep generating.
 
-### Partial rollout — "cut the long tail, finish it next round"
+### Partial rollout
+
+*cut the long tail, finish it next round*
 
 Very long generations are stopped at a budget, saved, and resumed in the next step instead of blocking this one. A little less freshness for much less waiting.
 
-### Server-based generation — "rollout as a service"
+### Rollout server
+
+*rollout as a service*
 
 The inference engine runs as a server and the trainer calls it like an API. This fits multi-turn agents and tool calls, where one sample needs many back-and-forth generations.
 
-### Colocate vs Separate — "share the desk or get two desks"
+### Colocate vs Separate
+
+*share the desk or get two desks*
 
 - **Colocate**: training and generation take turns on the same GPUs. No extra hardware, but they can't run at the same time.
 - **Separate**: dedicated generation GPUs and training GPUs run in parallel. More throughput, but weights must be shipped across and data is slightly stale.
 
-### Resource pool and placement — "seat assignment for roles"
+### GPU placement
+
+*seat assignment for roles*
 
 A resource pool is a named set of GPUs. Placement decides which role (actor, critic, reference, reward) sits on which pool, and which roles share GPUs.
 
-### Resharding — "same weights, change clothes"
+### Resharding
+
+*same weights, change clothes*
 
 The weights stay the same; only how they are cut across GPUs changes between training and generation. Doing it in place avoids a second full copy and shortens the switch.
 
-### Weight synchronization — "send the new playbook to the players"
+### Weight sync
+
+*send the new playbook to the players*
 
 After each update, new weights go to the rollout engine, converted between formats (e.g. Megatron → vLLM). Faster sync means fresher rollouts and shorter pauses.
 
-### FSDP2 / Megatron / Expert parallelism — "split big models so they fit"
+### Model parallelism
+
+*split big models so they fit*
 
 FSDP2 shards parameters, gradients, and optimizer state; Megatron adds tensor and pipeline parallelism; expert parallelism spreads MoE experts across GPUs.
 
-### Offloading, sequence packing, LoRA — "save memory three ways"
+### Memory savers
+
+*save memory three ways*
 
 - **Offloading**: move parameters or optimizer state to CPU when not in use.
 - **Sequence packing**: put several short samples into one sequence so padding doesn't waste compute.
 - **LoRA**: train small adapter matrices instead of all weights.
 
-### TransferQueue and staleness — "a conveyor belt with an expiry date"
+### Staleness control
+
+*a conveyor belt with an expiry date*
 
 Samples ride a queue from rollout to trainer. A staleness limit caps how many policy versions old a sample may be; older ones are dropped or down-weighted.
 
-### Inference engine features — "borrow, don't rebuild"
+### Engine features
+
+*borrow, don't rebuild*
 
 CUDA Graphs, KV cache management, and continuous batching come from vLLM/SGLang; the RL framework reuses them.
 
@@ -341,7 +363,7 @@ CUDA Graphs, KV cache management, and continuous batching come from vLLM/SGLang;
 
 Paths change between versions; check the main branch [[1]](https://github.com/verl-project/verl).
 
-## Where to start contributing to verl
+## Contributing to verl
 
 | Direction | Difficulty | Good first PR |
 |---|---|---|

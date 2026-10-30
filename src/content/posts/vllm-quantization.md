@@ -180,7 +180,7 @@ Setup: Llama-3.1 Instruct, quantized with LLM Compressor, served on vLLM 0.6.4.p
 - **Big batch (async serving): W8A8 has the best throughput.** Up to 3.04×, 405B FP8 on 16×H100 [[1]](https://arxiv.org/abs/2411.02355).
 - **Marlin INT4 kernel**: one layer, close to the ideal 4×, up to batch 16–32. End to end in vLLM: up to 2.8× [[6]](https://arxiv.org/abs/2408.11743).
 
-## Try it: Qwen3-8B on one A5000
+## Qwen3-8B demo
 
 **INT4: 2.6× faster at batch 1, 1.3 points lost. Batch 64: only 1.3×.**
 

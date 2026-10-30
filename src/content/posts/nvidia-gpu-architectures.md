@@ -18,7 +18,7 @@ From P100 to B200, NVIDIA grew dense FP16 matrix throughput about 100× (21 → 
 - **Hopper (H100, 2022)**: adds **FP8** with the Transformer Engine, the TMA copy engine, and thread block clusters. Power draw reaches 700 W.
 - **Blackwell (B200, 2024)**: **two dies in one package** that act as one GPU, adds FP4/FP6, and NVLink 5 at 1.8 TB/s.
 
-## Spec comparison
+## Specs
 
 SXM versions, dense Tensor Core numbers (no sparsity) [[1]](https://images.nvidia.com/content/pdf/tesla/whitepaper/pascal-architecture-whitepaper.pdf)[[2]](https://images.nvidia.com/content/volta-architecture/pdf/volta-architecture-whitepaper.pdf)[[3]](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)[[4]](https://resources.nvidia.com/en-us-tensor-core/gtc22-whitepaper-hopper)[[6]](https://www.nvidia.com/en-us/data-center/hgx/).
 
@@ -119,7 +119,7 @@ Full numbers:
 
 P100's FP16 number comes from its regular cores, not Tensor Cores. \*B200 core counts are derived from 148 SMs × per-SM counts; NVIDIA doesn't list them directly.
 
-## How an NVIDIA GPU is organized
+## GPU structure
 
 All five generations share the same hierarchy. Only the counts and the units inside the SM change.
 
@@ -292,7 +292,7 @@ Each die is about as large as a die can be manufactured, so NVIDIA put **two die
 - **Decompression engine** and a **RAS engine** for reliability at large scale.
 - **B300 (Blackwell Ultra)**: 288 GB HBM3e and more FP4 throughput.
 
-## The pattern across generations
+## Trends
 
 - **The precision ladder**: FP16 (Pascal) → Tensor Core FP16 (Volta) → TF32/BF16 (Ampere) → FP8 (Hopper) → FP4 (Blackwell). Halving the bits roughly doubles throughput at the same area.
 - **Compute outruns bandwidth**: FP16 FLOPS grew ~100×, HBM bandwidth ~11×. So each generation adds bigger caches, async copy engines (async copy → TMA → tensor memory), and lower-precision weights to need fewer bytes.
