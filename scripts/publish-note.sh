@@ -1,7 +1,9 @@
 #!/bin/bash
-# Publish the note open in Typora: commit it, push to GitHub, and upload the
-# rebuilt site to Cloudflare Pages (live at voidindex.net within seconds). Typora runs this from Export > "Publish to VoidIndex"
-# with the current file's path as the first argument.
+# Publish the note open in Typora: commit it and push to GitHub. Cloudflare
+# Pages (project "voidindex-site") builds every push to main, so the note is
+# live at voidindex.net a minute or two later. Typora runs this from
+# Export > "Publish to VoidIndex" with the current file's path as the first
+# argument.
 #
 #   scripts/publish-note.sh <path-to-note.md>
 
@@ -51,6 +53,4 @@ git commit -q -m "Publish: $TITLE" -- "$REL" >>"$LOG" 2>&1 || fail "git commit f
 git pull -q --rebase --autostash origin main >>"$LOG" 2>&1 || fail "git pull failed (see $LOG)"
 git push -q origin HEAD:main >>"$LOG" 2>&1 || fail "git push failed (see $LOG)"
 
-./scripts/deploy-cf.sh >>"$LOG" 2>&1 || fail "Upload to Cloudflare failed (see $LOG)"
-
-notify "Published" "$TITLE is live on voidindex.net"
+notify "Pushed" "$TITLE will be live on voidindex.net in about 2 minutes"
