@@ -222,3 +222,27 @@ html[data-font] .font-app {
 #article pre.edit-code {
   @apply bg-muted/60 rounded-md p-4 font-mono text-sm whitespace-pre-wrap;
 }
+.vault-dialog {
+  @apply bg-background text-foreground border-border m-auto w-[min(26rem,calc(100%-2rem))] rounded-lg border p-5 shadow-xl backdrop:bg-black/40;
+}
+.vault-title {
+  @apply mb-1 font-semibold;
+}
+.vault-hint {
+  @apply text-muted-foreground mb-3 text-sm;
+}
+.vault-dialog input {
+  @apply border-border bg-background focus:border-accent w-full rounded-md border px-3 py-2 outline-none;
+}
+.vault-actions {
+  @apply mt-4 flex justify-end gap-2 text-sm;
+}
+.vault-actions button {
+  @apply hover:bg-muted rounded-md px-3 py-1.5;
+}
+.vault-actions .vault-ok {
+  @apply bg-accent text-accent-foreground hover:bg-accent/90;
+}
+.vault-actions .vault-extra {
+  @apply text-muted-foreground me-auto;
+}

@@ -5,9 +5,10 @@
  * the .md file at the offsets from utils/remarkSourceMap.ts, and commits the
  * file to GitHub, which redeploys the site.
  */
+import { forget, getToken, hasVault, lock } from "./vault";
+
 const REPO = "lxy-alexander/VoidIndex";
 const BRANCH = "main";
-const TOKEN_KEY = "gh-token";
 const UNITS = "#article [data-md-s], #article [data-new]";
 const ZWSP = "\u200b";
 
@@ -117,28 +118,6 @@ function encodeBase64(text: string): string {
   return btoa(bin);
 }
 
-// The token lives in sessionStorage (gone when the tab closes) unless the
-// user chooses to remember it on this device.
-function getToken(): string | null {
-  const stored =
-    sessionStorage.getItem(TOKEN_KEY) ?? localStorage.getItem(TOKEN_KEY);
-  if (stored) return stored;
-  const token = prompt(
-    `GitHub fine-grained token (Contents read/write on ${REPO} only):`
-  )?.trim();
-  if (!token) return null;
-  const remember = confirm(
-    "Remember this token on this device?\n\nOK: keep it until you clear it.\nCancel: forget it when this tab closes."
-  );
-  (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
-  return token;
-}
-
-function forgetToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(TOKEN_KEY);
-}
-
 function toast(message: string): void {
   const el = document.createElement("div");
   el.className = "edit-toast";
@@ -240,7 +219,7 @@ async function save(path: string): Promise<Result> {
     );
   if (!dirty) return "unchanged";
 
-  const token = getToken();
+  const token = await getToken();
   if (!token) return "cancelled";
   const api = `https://api.github.com/repos/${REPO}/contents/${path}`;
   const headers = {
@@ -249,7 +228,7 @@ async function save(path: string): Promise<Result> {
   };
 
   const res = await fetch(`${api}?ref=${BRANCH}`, { headers });
-  if (res.status === 401) forgetToken();
+  if (res.status === 401) forget();
   if (!res.ok) throw new Error(`Reading the file failed (${res.status})`);
   const file = (await res.json()) as { content: string; sha: string };
   const raw = decodeBase64(file.content);
@@ -287,7 +266,7 @@ async function save(path: string): Promise<Result> {
       branch: BRANCH,
     }),
   });
-  if (put.status === 401) forgetToken();
+  if (put.status === 401) forget();
   if (!put.ok) throw new Error(`Saving failed (${put.status})`);
 
   // Recompute offsets so the next save on this page lands in the right place.
@@ -817,12 +796,9 @@ function setupEdit(): void {
   const path = article?.dataset.path;
   if (!btn || !article || !path) return;
 
-  // Visitors never see the button: it shows only once this browser holds a
-  // token, or when the page is opened with ?edit to enter one.
-  const owner =
-    sessionStorage.getItem(TOKEN_KEY) !== null ||
-    localStorage.getItem(TOKEN_KEY) !== null ||
-    new URLSearchParams(location.search).has("edit");
+  // Visitors never see the button: it shows only once this browser holds an
+  // encrypted token, or when the page is opened with ?edit to set one up.
+  const owner = hasVault() || new URLSearchParams(location.search).has("edit");
   if (!owner) return;
   btn.hidden = false;
 
@@ -896,5 +872,7 @@ function setupEdit(): void {
 }
 
 document.addEventListener("astro:page-load", setupEdit);
+// Wipe the unlocked token when the page is hidden for good.
+window.addEventListener("pagehide", lock);
 
 export {};
