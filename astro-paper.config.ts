@@ -2,7 +2,7 @@ import { defineAstroPaperConfig } from "./src/types/config";
 
 export default defineAstroPaperConfig({
   site: {
-    url: "https://voidindex.dev/",
+    url: "https://voidindex.net/",
     title: "VoidIndex - Alexander Lee",
     description: "World Peace",
     author: "Alexander Lee",

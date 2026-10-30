@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "rm -rf node_modules/.astro .astro && ([ -n \"$CI\" ] || astro check) && astro build && pagefind --site dist && cp -r dist/pagefind public/",
+    "build": "if [ \"${GITHUB_WORKFLOW:-}\" = \"Deploy to GitHub Pages\" ]; then ./scripts/redirect-site.sh; else rm -rf node_modules/.astro .astro && ([ -n \"$CI\" ] || astro check) && astro build && pagefind --site dist && cp -r dist/pagefind public/; fi",
     "preview": "astro preview",
     "sync": "astro sync",
     "astro": "astro",

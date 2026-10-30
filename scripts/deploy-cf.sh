@@ -1,18 +1,13 @@
 #!/bin/bash
-# Build the site and upload it straight to Cloudflare Pages (live in seconds).
-# Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, read from
-# ~/.config/voidindex/cloudflare.env (keep that file private: chmod 600).
+# Build the site and upload it straight to Cloudflare Pages; the new version
+# is live as soon as the upload finishes.
+#
+# Auth: `pnpm exec wrangler login` once (stores an OAuth token in wrangler's
+# own config, readable only by you). CI uses CLOUDFLARE_API_TOKEN instead.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ENV_FILE="$HOME/.config/voidindex/cloudflare.env"
-if [ -f "$ENV_FILE" ]; then
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-fi
-: "${CLOUDFLARE_API_TOKEN:?Set CLOUDFLARE_API_TOKEN in $ENV_FILE}"
-: "${CLOUDFLARE_ACCOUNT_ID:?Set CLOUDFLARE_ACCOUNT_ID in $ENV_FILE}"
-export CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID
+export CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-1f1357c6bd74676420403146f10c3b75}"
 
 pnpm run build
 # Cache rules for Cloudflare (kept out of public/, which Vite tries to parse).
