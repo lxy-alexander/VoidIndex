@@ -5,6 +5,7 @@
  * the .md file at the offsets from utils/remarkSourceMap.ts, and commits the
  * file to GitHub, which redeploys the site.
  */
+import { openReview } from "./review";
 import { forget, getToken, hasVault, lock } from "./vault";
 
 const REPO = "lxy-alexander/VoidIndex";
@@ -439,8 +440,14 @@ function restoreDraft(path: string, article: HTMLElement): void {
 }
 
 // Commit every draft in one commit through the Git Data API.
-async function publishDrafts(): Promise<Result> {
+async function publishDrafts(
+  texts: Record<string, string> = {}
+): Promise<Result> {
   const drafts = readDrafts();
+  // Edits made in the review panel replace the stored draft text.
+  for (const [path, text] of Object.entries(texts)) {
+    if (drafts[path]) drafts[path].raw = text;
+  }
   const paths = Object.keys(drafts);
   if (!paths.length) return "unchanged";
   const headers = await githubHeaders();
@@ -921,23 +928,14 @@ function onBeforeInput(e: InputEvent): void {
     return;
   }
   record(
-    e.inputType.startsWith("insertText") || e.inputType.startsWith("delete")
+    e.inputType.startsWith("insertText") ||
+      e.inputType === "insertCompositionText" ||
+      e.inputType.startsWith("delete")
   );
 }
 
 function onKeyDown(e: KeyboardEvent): void {
   const mod = e.metaKey || e.ctrlKey;
-  if (mod && e.key.toLowerCase() === "z") {
-    e.preventDefault();
-    if (e.shiftKey) redo();
-    else undo();
-    return;
-  }
-  if (mod && e.key.toLowerCase() === "y") {
-    e.preventDefault();
-    redo();
-    return;
-  }
   // Snapshot before the structural edits handled below.
   if (
     e.key === "Enter" ||
@@ -1096,6 +1094,19 @@ function placeButton(btn: HTMLElement, offsetY = 0): void {
   btn.style.top = `calc(50% - ${btn.offsetHeight / 2 - offsetY}px)`;
 }
 
+// Whether the article has edits that are not in a saved draft yet.
+function hasUnsaved(): boolean {
+  return (
+    document.querySelector("#article [data-deleted]") !== null ||
+    units().some(
+      el =>
+        el.dataset.new !== undefined ||
+        el.dataset.was !== undefined ||
+        unitMarkdown(el) !== before.get(uid(el))
+    )
+  );
+}
+
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 function setupEdit(): void {
@@ -1195,6 +1206,44 @@ function setupEdit(): void {
     }
   };
 
+  // ⌘Z / ⇧⌘Z / ⌘Y anywhere on the page while editing, wherever the caret is.
+  // Esc leaves edit mode.
+  document.addEventListener(
+    "keydown",
+    e => {
+      if (!article.classList.contains("editing")) return;
+      if (document.querySelector(".review-overlay, dialog[open]")) return;
+      if (e.isComposing) return;
+      const key = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && (key === "z" || key === "y")) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === "y" || e.shiftKey) redo();
+        else undo();
+      } else if (e.key === "Escape") {
+        if (
+          hasUnsaved() &&
+          !confirm("Leave edit mode and drop unsaved changes?")
+        )
+          return;
+        if (hasUnsaved()) {
+          article.classList.remove("editing");
+          location.reload();
+          return;
+        }
+        setEditing(false);
+        setMode(btn, "idle", "Edit page");
+      }
+    },
+    true
+  );
+
+  // Warn before leaving the page with edits that aren't saved as a draft.
+  window.addEventListener("beforeunload", e => {
+    if (article.classList.contains("editing") && hasUnsaved())
+      e.preventDefault();
+  });
+
   btn.addEventListener("click", async () => {
     const mode = btn.dataset.mode;
     if (mode === "idle") {
@@ -1207,47 +1256,56 @@ function setupEdit(): void {
     if (mode !== "editing") return;
     const result = await run(btn, () => saveDraft(path), {
       saved: "Draft saved",
-      after: "idle",
-      afterLabel: "Edit page",
+      after: "editing",
+      afterLabel: "Save draft",
     });
-    if (result === "cancelled" || result === "failed") {
-      setMode(btn, "editing", "Save draft");
-      return;
-    }
-    setEditing(false);
-    if (result === "saved")
-      toast("Draft saved on this device. Publish when you're done.");
+    setMode(btn, "editing", "Save draft");
+    if (result !== "saved") return;
+    // Stay in edit mode; the saved text is the new baseline.
+    before = new Map(units().map(el => [uid(el), unitMarkdown(el)]));
+    resetHistory();
+    toast("Draft saved on this device. Publish when you're done.");
     refreshPublish();
   });
 
+  // Publishing opens a review panel with the diff of every draft.
   pub.addEventListener("click", async () => {
     if (pub.dataset.mode !== "idle") return;
     const drafts = readDrafts();
-    const titles = Object.values(drafts)
-      .map(d => `• ${d.title}`)
-      .join("\n");
-    if (!titles) return;
-    // Alt-click throws the drafts away instead.
-    if (window.event instanceof MouseEvent && window.event.altKey) {
-      if (confirm(`Discard unpublished drafts?\n\n${titles}`)) {
-        writeDrafts({});
-        location.reload();
-      }
+    const paths = Object.keys(drafts);
+    if (!paths.length) return;
+    let bases: string[];
+    try {
+      bases = await Promise.all(paths.map(fetchSource));
+    } catch (error) {
+      toast((error as Error).message);
       return;
     }
-    if (!confirm(`Publish these notes in one commit?\n\n${titles}`)) return;
-    const result = await run(pub, publishDrafts, {
-      saved: "Published",
-      after: "idle",
-      afterLabel: "Publish",
-    });
-    if (result === "saved") {
-      toast("Published. The live site updates in about 1–2 minutes.");
-    }
-    if (result !== "failed" && result !== "cancelled")
-      setMode(pub, "idle", "Publish");
-    else setMode(pub, "idle", "Publish");
-    refreshPublish();
+    openReview(
+      paths.map((p, i) => ({
+        path: p,
+        title: drafts[p].title,
+        base: bases[i],
+        text: drafts[p].raw,
+      })),
+      {
+        save: async texts => {
+          const result = await run(pub, () => publishDrafts(texts), {
+            saved: "Published",
+            after: "idle",
+            afterLabel: "Publish",
+          });
+          setMode(pub, "idle", "Publish");
+          refreshPublish();
+          if (result !== "saved") throw new Error("not published");
+          toast("Published. The live site updates in about 1–2 minutes.");
+        },
+        discard: () => {
+          writeDrafts({});
+          location.reload();
+        },
+      }
+    );
   });
 
   // Keep links from navigating away while editing.

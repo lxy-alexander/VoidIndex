@@ -274,3 +274,65 @@ kbd,
 samp {
   font-family: var(--font-source-code-pro), ui-monospace, monospace;
 }
+/* Publish review panel (scripts/review.ts) */
+.review-overlay {
+  @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4;
+}
+.review-panel {
+  @apply bg-background border-border flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-lg border shadow-2xl;
+}
+.review-head {
+  @apply border-border flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3;
+}
+.review-title {
+  @apply font-semibold;
+}
+.review-actions {
+  @apply flex gap-2 text-sm;
+}
+.review-actions button {
+  @apply border-border hover:bg-muted rounded-md border px-3 py-1.5;
+}
+.review-actions .review-save {
+  @apply border-green-700 bg-green-600 font-semibold text-white hover:bg-green-700 disabled:opacity-60;
+}
+.review-body {
+  @apply overflow-auto px-4 py-3;
+}
+.review-file h3 {
+  @apply my-3 font-semibold;
+}
+.review-file h3 code {
+  @apply text-muted-foreground ms-2 text-xs font-normal;
+}
+.diff {
+  @apply border-border mb-6 overflow-hidden rounded-md border text-[13px] leading-6;
+  font-family: var(--font-source-code-pro), ui-monospace, monospace;
+}
+.diff-row {
+  @apply flex;
+}
+.diff-sign {
+  @apply text-muted-foreground w-6 shrink-0 text-center select-none;
+}
+.diff-text {
+  @apply min-h-6 flex-1 px-1 break-words whitespace-pre-wrap outline-none;
+}
+.diff-text:focus {
+  @apply bg-accent/10;
+}
+.diff-add {
+  @apply bg-green-100 dark:bg-green-900/40;
+}
+.diff-add .diff-sign {
+  @apply text-green-700 dark:text-green-400;
+}
+.diff-del {
+  @apply bg-red-100 text-red-900/80 line-through decoration-red-400/50 dark:bg-red-900/40 dark:text-red-200/80;
+}
+.diff-del .diff-sign {
+  @apply text-red-700 no-underline dark:text-red-400;
+}
+.diff-fold {
+  @apply bg-muted/60 text-muted-foreground hover:text-foreground block w-full px-3 py-1 text-left text-xs;
+}
