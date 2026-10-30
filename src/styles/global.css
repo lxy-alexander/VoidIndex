@@ -163,27 +163,42 @@ html[data-font] .font-app {
   @apply text-accent font-semibold;
 }
 
-/* In-place editing (scripts/edit.ts) */
+/* In-place editing (scripts/edit.ts). Button states: idle (pencil),
+   editing (grey pencil), saving (green ring), saved (green check),
+   unchanged (grey dash), failed (red cross). */
 .edit-btn {
   @apply bg-background border-border text-foreground hover:text-accent fixed right-6 bottom-6 z-40 flex size-12 items-center justify-center rounded-full border shadow-lg transition-colors;
 }
+.edit-btn[style*="left"] {
+  @apply right-auto bottom-auto;
+}
 .edit-btn svg {
-  @apply size-5;
+  @apply hidden size-5;
 }
-.edit-btn .icon-save,
+.edit-btn[data-mode="idle"] .icon-edit,
 .edit-btn[data-mode="editing"] .icon-edit,
-.edit-btn[data-mode="saving"] .icon-edit {
-  @apply hidden;
-}
-.edit-btn[data-mode="editing"] .icon-save,
-.edit-btn[data-mode="saving"] .icon-save {
+.edit-btn[data-mode="saving"] .icon-edit,
+.edit-btn[data-mode="saved"] .icon-check,
+.edit-btn[data-mode="unchanged"] .icon-same,
+.edit-btn[data-mode="failed"] .icon-fail {
   @apply block;
 }
-.edit-btn[data-mode="editing"] {
-  @apply bg-accent text-accent-foreground border-accent hover:text-accent-foreground;
-}
+.edit-btn[data-mode="editing"],
 .edit-btn[data-mode="saving"] {
-  @apply bg-accent text-accent-foreground animate-pulse;
+  @apply bg-muted text-muted-foreground hover:text-foreground;
+}
+.edit-btn[data-mode="saving"]::after {
+  content: "";
+  @apply absolute -inset-1 animate-spin rounded-full border-3 border-transparent border-t-green-600 border-r-green-600;
+}
+.edit-btn[data-mode="saved"] {
+  @apply border-green-600 bg-green-600 text-white hover:text-white;
+}
+.edit-btn[data-mode="unchanged"] {
+  @apply bg-muted text-muted-foreground;
+}
+.edit-btn[data-mode="failed"] {
+  @apply border-red-600 bg-red-600 text-white hover:text-white;
 }
 #article.editing [contenteditable="true"] {
   @apply outline-none;
@@ -192,8 +207,8 @@ html[data-font] .font-app {
 #article.editing [contenteditable="true"] * {
   @apply cursor-text;
 }
-.edit-btn[style*="left"] {
-  @apply right-auto bottom-auto;
+#article.editing .heading-link {
+  @apply hidden;
 }
 .edit-toast {
   @apply bg-foreground text-background fixed right-6 bottom-22 z-50 max-w-sm rounded-md px-4 py-3 text-sm shadow-lg;
