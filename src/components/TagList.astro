@@ -1,0 +1,16 @@
+---
+import { getCollection } from "astro:content";
+import Tag from "@/components/Tag.astro";
+import { getUniqueTags } from "@/utils/getUniqueTags";
+
+const posts = await getCollection("posts", ({ data }) => !data.draft);
+const tags = getUniqueTags(posts);
+const { class: className } = Astro.props;
+---
+
+<section id="tags" class:list={["border-border border-b pt-8 pb-6", className]}>
+  <h2 class="mb-4 text-2xl font-semibold tracking-wide">Tags</h2>
+  <ul class="flex flex-wrap gap-x-6 gap-y-3">
+    {tags.map(({ tag, tagName }) => <Tag {tag} {tagName} size="sm" />)}
+  </ul>
+</section>
