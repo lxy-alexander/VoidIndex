@@ -103,6 +103,12 @@ html[data-width="full"] {
   #main-content.has-toc {
     padding-right: calc(14rem + 3rem);
   }
+}
+/* Wide screens: leave 280px between the article and the Content sidebar. */
+@media (min-width: 96rem) {
+  #main-content.has-toc {
+    padding-right: calc(15rem + 280px);
+  }
   #main-content.has-toc .toc-aside {
     @apply block;
   }
