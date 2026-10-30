@@ -68,6 +68,14 @@ export default defineConfig({
   },
   fonts: [
     {
+      name: "Source Code Pro",
+      cssVariable: "--font-source-code-pro",
+      provider: fontProviders.google(),
+      fallbacks: ["monospace"],
+      weights: [400, 600],
+      styles: ["normal"],
+    },
+    {
       name: "Fira Code",
       cssVariable: "--font-fira-code",
       provider: fontProviders.google(),

@@ -267,3 +267,10 @@ html[data-font] .font-app {
 #redo-btn:not([style*="left"]) {
   @apply right-21 bottom-7;
 }
+/* Code blocks and inline code use Source Code Pro. */
+pre,
+code,
+kbd,
+samp {
+  font-family: var(--font-source-code-pro), ui-monospace, monospace;
+}
