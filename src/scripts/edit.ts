@@ -126,12 +126,31 @@ function encodeBase64(text: string): string {
   return btoa(bin);
 }
 
-function toast(message: string): void {
+// A short notice in the middle of the screen; click to dismiss early.
+type Tone = "success" | "error" | "info";
+const TONE_ICON: Record<Tone, string> = {
+  success: '<path d="M5 12l5 5l10 -10" />',
+  error: '<path d="M12 8v4" /><path d="M12 16h.01" />',
+  info: '<path d="M12 8h.01" /><path d="M11 12h1v4h1" />',
+};
+
+function toast(message: string, tone: Tone = "info", detail = ""): void {
+  document.querySelector(".edit-toast")?.remove();
   const el = document.createElement("div");
-  el.className = "edit-toast";
-  el.textContent = message;
+  el.className = `edit-toast edit-toast-${tone}`;
+  el.setAttribute("role", tone === "error" ? "alert" : "status");
+  el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">${TONE_ICON[tone]}</svg><div><p class="edit-toast-title"></p><p class="edit-toast-detail"></p></div>`;
+  el.querySelector(".edit-toast-title")!.textContent = message;
+  const sub = el.querySelector<HTMLElement>(".edit-toast-detail")!;
+  if (detail) sub.textContent = detail;
+  else sub.remove();
+  const dismiss = () => {
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), 200);
+  };
+  el.addEventListener("click", dismiss);
   document.body.append(el);
-  setTimeout(() => el.remove(), 5000);
+  setTimeout(dismiss, tone === "error" ? 4000 : 2200);
 }
 
 type Piece = { el: HTMLElement; start: number; length: number };
@@ -351,7 +370,7 @@ async function saveDraft(path: string): Promise<Result> {
   const { fm, bodyStart, body } = splitBody(raw);
   if ((await sha1(body)) !== hashEl.dataset.hash) {
     throw new Error(
-      "The note changed since this page was built. Reload after the deploy finishes, then edit again."
+      "Note changed on GitHub. Reload after the deploy, then edit again."
     );
   }
 
@@ -434,7 +453,9 @@ function restoreDraft(path: string, article: HTMLElement): void {
     article.innerHTML = draft.html;
   } else {
     toast(
-      "This note changed on GitHub after your draft was made; publishing it will be refused."
+      "Draft is out of date",
+      "error",
+      "This note changed on GitHub after your draft."
     );
   }
 }
@@ -469,7 +490,7 @@ async function publishDrafts(
     const { body } = splitBody(decodeBase64(file.content));
     if ((await sha1(body)) !== drafts[path].baseHash) {
       throw new Error(
-        `"${drafts[path].title}" changed on GitHub since you started editing. Nothing was published.`
+        `"${drafts[path].title}" changed on GitHub. Nothing was published.`
       );
     }
   }
@@ -1182,7 +1203,12 @@ function setupEdit(): void {
   const run = async (
     el: HTMLElement,
     action: () => Promise<Result>,
-    labels: { saved: string; after: string; afterLabel: string }
+    labels: {
+      saved: string;
+      after: string;
+      afterLabel: string;
+      onSaved?: () => void;
+    }
   ): Promise<Result | "failed"> => {
     setMode(el, "saving", "Working…");
     const started = Date.now();
@@ -1195,11 +1221,12 @@ function setupEdit(): void {
         result === "saved" ? "saved" : "unchanged",
         result === "saved" ? labels.saved : "No changes"
       );
+      if (result === "saved") labels.onSaved?.();
       await sleep(2000);
       setMode(el, labels.after, labels.afterLabel);
       return result;
     } catch (error) {
-      toast((error as Error).message);
+      toast("Something went wrong", "error", (error as Error).message);
       setMode(el, "failed", "Failed");
       await sleep(2000);
       return "failed";
@@ -1258,13 +1285,13 @@ function setupEdit(): void {
       saved: "Draft saved",
       after: "editing",
       afterLabel: "Save draft",
+      onSaved: () => toast("Draft saved", "success"),
     });
     setMode(btn, "editing", "Save draft");
     if (result !== "saved") return;
     // Stay in edit mode; the saved text is the new baseline.
     before = new Map(units().map(el => [uid(el), unitMarkdown(el)]));
     resetHistory();
-    toast("Draft saved on this device. Publish when you're done.");
     refreshPublish();
   });
 
@@ -1278,7 +1305,7 @@ function setupEdit(): void {
     try {
       bases = await Promise.all(paths.map(fetchSource));
     } catch (error) {
-      toast((error as Error).message);
+      toast("Something went wrong", "error", (error as Error).message);
       return;
     }
     openReview(
@@ -1294,11 +1321,12 @@ function setupEdit(): void {
             saved: "Published",
             after: "idle",
             afterLabel: "Publish",
+            onSaved: () =>
+              toast("Published", "success", "Live in about a minute"),
           });
           setMode(pub, "idle", "Publish");
           refreshPublish();
           if (result !== "saved") throw new Error("not published");
-          toast("Published. The live site updates in about 1–2 minutes.");
         },
         discard: () => {
           writeDrafts({});

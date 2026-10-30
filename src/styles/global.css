@@ -213,8 +213,37 @@ html[data-font] .font-app {
 #article.editing .heading-link {
   @apply hidden;
 }
+/* Centered notice (toast in scripts/edit.ts) */
 .edit-toast {
-  @apply bg-foreground text-background fixed right-6 bottom-22 z-50 max-w-sm rounded-md px-4 py-3 text-sm shadow-lg;
+  @apply bg-background/95 border-border text-foreground fixed top-1/2 left-1/2 z-[60] flex max-w-[min(22rem,calc(100%-2rem))] -translate-1/2 cursor-pointer items-start gap-3 rounded-xl border px-5 py-4 shadow-2xl backdrop-blur;
+  animation: toast-in 180ms ease-out;
+}
+.edit-toast.leaving {
+  @apply opacity-0 transition-opacity duration-200;
+}
+.edit-toast svg {
+  @apply mt-0.5 size-5 shrink-0 rounded-full p-0.5;
+}
+.edit-toast-success svg {
+  @apply bg-green-600 text-white;
+}
+.edit-toast-error svg {
+  @apply bg-red-600 text-white;
+}
+.edit-toast-info svg {
+  @apply bg-accent text-accent-foreground;
+}
+.edit-toast-title {
+  @apply font-semibold;
+}
+.edit-toast-detail {
+  @apply text-muted-foreground mt-0.5 text-sm;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
 }
 #article mark {
   @apply rounded-sm bg-yellow-200/80 px-0.5 text-inherit dark:bg-yellow-500/30;
