@@ -350,41 +350,6 @@ Samples ride a queue from rollout to trainer. A staleness limit caps how many po
 
 CUDA Graphs, KV cache management, and continuous batching come from vLLM/SGLang; the RL framework reuses them.
 
-## verl code map
-
-| Path | What it does | Good PR topics |
-|---|---|---|
-| `verl/trainer/` | RL training loop and algorithms | Trainer correctness, scheduling |
-| `verl/workers/` | Actor, rollout, model execution | Backend integration, weight sync |
-| `verl/single_controller/` | Ray worker orchestration, resource pools | GPU placement, scheduling |
-| `verl/experimental/` | Async training and dataflow experiments | Async pipeline, staleness, partial rollout |
-| `verl/utils/` | Shared data structures and helpers | Bug fixes, performance, compatibility |
-| `tests/` | Unit and integration tests | Regression tests, backend coverage |
-
-Paths change between versions; check the main branch [[1]](https://github.com/verl-project/verl).
-
-## Contributing to verl
-
-| Direction | Difficulty | Good first PR |
-|---|---|---|
-| Rollout backend compatibility fix | Low–medium | Yes |
-| Async rollout edge cases | Medium | Yes |
-| Resource pool scheduling bug | Medium | Yes |
-| Agentic multi-turn rollout fix | Medium | Yes |
-| Async trainer / TransferQueue | Medium–high | After some experience |
-| FSDP2 / Megatron integration | High | With prior experience |
-| Weight sync optimization | High | Not first |
-| Resharding optimization | High | Not first |
-
-Start from the [good first issues](https://github.com/verl-project/verl/labels/good%20first%20issue) and the [contribution guide](https://github.com/verl-project/verl/blob/main/CONTRIBUTING.md) [[4]](https://github.com/verl-project/verl/blob/main/CONTRIBUTING.md). For an LLM-systems path: rollout scheduling → GPU placement → weight sync → async pipeline.
-
-## Pitfalls
-
-- **Async ≠ free speed**: off-policy data can hurt stability; watch staleness limits.
-- **Features differ by backend**: parallelism and optimizations depend on FSDP vs Megatron and vLLM vs SGLang.
-- **Experimental modules move fast**: async and Omni/VLA APIs change between releases.
-- **Inference speed comes from the engine**: tune vLLM/SGLang settings, not only the RL framework.
-- **Comparison tables age quickly**: these projects add backends every few months.
 
 ## References
 
