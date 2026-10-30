@@ -23,7 +23,14 @@ function units(withDeleted = false): HTMLElement[] {
 }
 
 // Inline Markdown of each existing block when edit mode started.
-let before = new Map<HTMLElement, string>();
+let before = new Map<string, string>();
+
+// A stable id per block; it survives undo, which rebuilds the article HTML.
+let nextUid = 0;
+function uid(el: HTMLElement): string {
+  if (!el.dataset.uid) el.dataset.uid = String(++nextUid);
+  return el.dataset.uid;
+}
 
 // Inline HTML back to Markdown: bold, italic, code and links survive.
 function toMarkdown(node: Node): string {
@@ -185,7 +192,7 @@ function buildEdits(body: string, raw: string, bodyStart: number): Edit[] {
         s = raw.lastIndexOf("\n", bodyStart + s - 1) + 1 - bodyStart;
       }
       const inline = unitMarkdown(el);
-      const changed = converted || inline !== before.get(el);
+      const changed = converted || inline !== before.get(uid(el));
       if (changed) el.dataset.dirty = "";
       else delete el.dataset.dirty;
       const prefix = converted ? blockPrefix(el, "") : "";
@@ -333,7 +340,7 @@ async function saveDraft(path: string): Promise<Result> {
       el =>
         el.dataset.new !== undefined ||
         el.dataset.was !== undefined ||
-        unitMarkdown(el) !== before.get(el)
+        unitMarkdown(el) !== before.get(uid(el))
     );
   if (!dirty) return "unchanged";
 
@@ -824,7 +831,124 @@ function caretTextUpTo(root: HTMLElement, node: Node): number {
   return range.toString().replace(/\u200b/g, "").length;
 }
 
+// Undo/redo. Most edits here are made by script, which the browser's own
+// undo can't track, so keep snapshots of the article and the caret.
+type Snapshot = { html: string; caret: { uid: string; offset: number } | null };
+let undoStack: Snapshot[] = [];
+let redoStack: Snapshot[] = [];
+let lastTyping = 0;
+
+function resetHistory(): void {
+  undoStack = [];
+  redoStack = [];
+  lastTyping = 0;
+}
+
+function snapshot(): Snapshot {
+  const article = document.querySelector<HTMLElement>("#article")!;
+  units().forEach(uid);
+  const unit = caretUnit();
+  let caret: Snapshot["caret"] = null;
+  const sel = getSelection();
+  if (unit && sel?.rangeCount) {
+    const range = document.createRange();
+    range.selectNodeContents(unit);
+    range.setEnd(
+      sel.getRangeAt(0).startContainer,
+      sel.getRangeAt(0).startOffset
+    );
+    caret = { uid: uid(unit), offset: range.toString().length };
+  }
+  return { html: article.innerHTML, caret };
+}
+
+// Save the state before a change. Typing within a second counts as one step.
+function record(typing = false): void {
+  const now = Date.now();
+  if (typing && now - lastTyping < 1000) {
+    lastTyping = now;
+    return;
+  }
+  lastTyping = typing ? now : 0;
+  undoStack.push(snapshot());
+  if (undoStack.length > 200) undoStack.shift();
+  redoStack = [];
+}
+
+function restore(state: Snapshot): void {
+  const article = document.querySelector<HTMLElement>("#article")!;
+  article.innerHTML = state.html;
+  lastTyping = 0;
+  if (!state.caret) return;
+  const unit = article.querySelector<HTMLElement>(
+    `[data-uid="${state.caret.uid}"]`
+  );
+  if (!unit) return;
+  unit.focus();
+  // Walk the text to the saved character offset.
+  let left = state.caret.offset;
+  const walker = document.createTreeWalker(unit, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = (node as Text).length;
+    if (left <= length) {
+      getSelection()?.collapse(node, left);
+      return;
+    }
+    left -= length;
+  }
+  placeCaret(unit, true);
+}
+
+function undo(): void {
+  const state = undoStack.pop();
+  if (!state) return;
+  redoStack.push(snapshot());
+  restore(state);
+}
+
+function redo(): void {
+  const state = redoStack.pop();
+  if (!state) return;
+  undoStack.push(snapshot());
+  restore(state);
+}
+
+function onBeforeInput(e: InputEvent): void {
+  if (e.inputType === "historyUndo" || e.inputType === "historyRedo") {
+    e.preventDefault();
+    if (e.inputType === "historyUndo") undo();
+    else redo();
+    return;
+  }
+  record(
+    e.inputType.startsWith("insertText") || e.inputType.startsWith("delete")
+  );
+}
+
 function onKeyDown(e: KeyboardEvent): void {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === "y") {
+    e.preventDefault();
+    redo();
+    return;
+  }
+  // Snapshot before the structural edits handled below.
+  if (
+    e.key === "Enter" ||
+    e.key === "Tab" ||
+    (mod &&
+      !["c", "a", "x", "v"].includes(e.key.toLowerCase()) &&
+      !e.key.startsWith("Arrow"))
+  ) {
+    record();
+  }
+  if (e.key === "Backspace" || e.key === "Delete") record(true);
   const unit = caretUnit();
   if (!unit) return;
   if (onShortcut(e, unit)) return;
@@ -999,6 +1123,7 @@ function setupEdit(): void {
   window.addEventListener("resize", place);
   article.addEventListener("input", onInput);
   article.addEventListener("keydown", onKeyDown);
+  article.addEventListener("beforeinput", onBeforeInput);
 
   const setMode = (el: HTMLElement, mode: string, label: string) => {
     el.dataset.mode = mode;
@@ -1018,7 +1143,23 @@ function setupEdit(): void {
   };
   refreshPublish();
 
+  const undoBtn = document.querySelector<HTMLButtonElement>("#undo-btn")!;
+  const redoBtn = document.querySelector<HTMLButtonElement>("#redo-btn")!;
+  // Keep focus (and the caret) in the text when clicking these.
+  for (const [button, action] of [
+    [undoBtn, undo],
+    [redoBtn, redo],
+  ] as const) {
+    button.addEventListener("mousedown", e => e.preventDefault());
+    button.addEventListener("click", action);
+  }
+
   const setEditing = (editing: boolean) => {
+    undoBtn.hidden = redoBtn.hidden = !editing;
+    if (editing) {
+      placeButton(undoBtn, -120);
+      placeButton(redoBtn, -60);
+    }
     article.classList.toggle("editing", editing);
     units().forEach(el => {
       if (editing) el.contentEditable = "true";
@@ -1057,7 +1198,8 @@ function setupEdit(): void {
   btn.addEventListener("click", async () => {
     const mode = btn.dataset.mode;
     if (mode === "idle") {
-      before = new Map(units().map(el => [el, unitMarkdown(el)]));
+      before = new Map(units().map(el => [uid(el), unitMarkdown(el)]));
+      resetHistory();
       setEditing(true);
       setMode(btn, "editing", "Save draft");
       return;

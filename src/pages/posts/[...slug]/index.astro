@@ -167,6 +167,12 @@ const ogImage = ogImageUrl
       <svg class="icon-same" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l14 0" /></svg>
       <svg class="icon-fail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6l-12 12" /><path d="M6 6l12 12" /></svg>
     </button>
+    <button id="undo-btn" class="edit-btn edit-mini focus-outline" hidden data-mode="idle" title="Undo (⌘Z)" aria-label="Undo">
+      <svg class="icon-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14l-4 -4l4 -4" /><path d="M5 10h11a4 4 0 1 1 0 8h-1" /></svg>
+    </button>
+    <button id="redo-btn" class="edit-btn edit-mini focus-outline" hidden data-mode="idle" title="Redo (⇧⌘Z)" aria-label="Redo">
+      <svg class="icon-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l4 -4l-4 -4" /><path d="M19 10h-11a4 4 0 1 0 0 8h1" /></svg>
+    </button>
     <button
       id="publish-btn"
       class="edit-btn focus-outline"
