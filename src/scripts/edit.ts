@@ -26,7 +26,7 @@ function units(withDeleted = false): HTMLElement[] {
 // Inline Markdown of each existing block when edit mode started.
 let before = new Map<string, string>();
 // Source range of each existing block when editing (re)started, by uid.
-let original = new Map<string, { s: number; e: number }>();
+let original = new Map<string, { s: number; e: number; cell: boolean }>();
 
 function remember(): void {
   before = new Map(units().map(el => [uid(el), unitMarkdown(el)]));
@@ -37,7 +37,11 @@ function remember(): void {
       )
       .map(el => [
         uid(el),
-        { s: Number(el.dataset.mdS), e: Number(el.dataset.mdE) },
+        {
+          s: Number(el.dataset.mdS),
+          e: Number(el.dataset.mdE),
+          cell: el.tagName === "TD" || el.tagName === "TH",
+        },
       ])
   );
 }
@@ -294,6 +298,8 @@ function buildEdits(body: string, raw: string, bodyStart: number): Edit[] {
   // their source lines (marker included) and the blank line after.
   for (const [id, range] of original) {
     if (document.querySelector(`#article [data-uid="${id}"]`)) continue;
+    // A table cell's source is part of a row; leave the table intact.
+    if (range.cell) continue;
     const s = raw.lastIndexOf("\n", bodyStart + range.s - 1) + 1 - bodyStart;
     let e = range.e;
     while (body[e] === "\n") e++;
@@ -772,8 +778,8 @@ function atBoundary(unit: HTMLElement, end: boolean): boolean {
 
 // Each block is its own editing host, so arrow keys must hop between them.
 function moveAcross(e: KeyboardEvent, unit: HTMLElement): boolean {
-  // The article is one editing area; only table cells are separate.
-  if (!unit.closest("td, th")) return false;
+  // The article is one editing area, so the browser moves the caret itself.
+  if (unit.parentElement?.isContentEditable) return false;
   const back = e.key === "ArrowUp" || e.key === "ArrowLeft";
   const vertical = e.key === "ArrowUp" || e.key === "ArrowDown";
   const leaving = vertical
@@ -1102,6 +1108,8 @@ function onKeyDown(e: KeyboardEvent): void {
     const all = units();
     const prev = all[all.indexOf(unit) - 1];
     if (!prev || !adjacent(prev, unit) || prev.tagName === "PRE") return;
+    // Table cells keep their own content; never join them.
+    if (unit.closest("td, th") || prev.closest("td, th")) return;
     e.preventDefault();
     const list = unit.tagName === "LI" ? unit.parentElement : null;
     const joinAt = document.createRange();
@@ -1384,20 +1392,14 @@ function setupEdit(): void {
       formatBar.hidden = true;
       return;
     }
-    // One editing area, so a selection can span blocks and ⌘A selects all.
-    // Code blocks, diagrams and the like stay locked; table cells are
-    // edited one at a time.
+    // One editing area, so a selection can span blocks (tables included)
+    // and ⌘A selects all. Code blocks, diagrams and the like stay locked.
     article.contentEditable = "true";
     const blocks = new Set(units());
     for (const child of article.children) {
       const el = child as HTMLElement;
       if (blocks.has(el)) continue;
-      if (el.tagName === "TABLE" || el.querySelector("table")) {
-        el.contentEditable = "false";
-        el.querySelectorAll<HTMLElement>("td, th").forEach(cell => {
-          if (blocks.has(cell)) cell.contentEditable = "true";
-        });
-      } else if (![...blocks].some(b => el.contains(b))) {
+      if (![...blocks].some(b => el.contains(b))) {
         el.contentEditable = "false";
       }
     }
