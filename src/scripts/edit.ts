@@ -1332,7 +1332,21 @@ function isOwner(): boolean {
   );
 }
 
-function setupEdit(): void {
+// Signed in through Cloudflare Access (see functions/api/whoami.ts) on this
+// device? Visitors get a redirect to the Access login, which reads as "no".
+async function signedIn(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/whoami", {
+      redirect: "manual",
+      cache: "no-store",
+    });
+    return res.ok && (await res.json()).owner === true;
+  } catch {
+    return false;
+  }
+}
+
+function setupEdit(signedInHere = false): void {
   const btn = document.querySelector<HTMLButtonElement>("#edit-btn");
   const pub = document.querySelector<HTMLButtonElement>("#publish-btn");
   const article = document.querySelector<HTMLElement>("#article");
@@ -1340,8 +1354,20 @@ function setupEdit(): void {
   if (!btn || !pub || !article || !path) return;
 
   // Visitors never see the buttons: they show only once this browser holds an
-  // encrypted token, or when the page is opened with ?edit to set one up.
-  if (!isOwner()) return;
+  // encrypted token, was opened with ?edit, or is signed in to Access.
+  if (!signedInHere && !isOwner()) {
+    if (new URLSearchParams(location.search).get("edit") === "off") return;
+    void signedIn().then(ok => {
+      if (!ok) return;
+      try {
+        localStorage.setItem(OWNER_KEY, "1");
+      } catch {
+        // Storage unavailable: the check simply runs again next time.
+      }
+      setupEdit(true);
+    });
+    return;
+  }
   btn.hidden = false;
 
   deployedHash =
@@ -1577,7 +1603,7 @@ function setupEdit(): void {
   });
 }
 
-document.addEventListener("astro:page-load", setupEdit);
+document.addEventListener("astro:page-load", () => setupEdit());
 // Wipe the unlocked token when the page is hidden for good.
 window.addEventListener("pagehide", lock);
 
