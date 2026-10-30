@@ -10,7 +10,7 @@ draft: false
 
 Training and inference use the same parallelism concepts. Training adds DDP, FSDP and ZeRO, which shard gradients and optimizer states that inference doesn't have.
 
-## The big picture
+## Overview
 
 ```mermaid
 flowchart TD
@@ -22,7 +22,7 @@ flowchart TD
     I --> IS["Strategies: DP, TP, PP, EP, CP*"]
 ```
 
-\*Whether a strategy is available depends on the framework and its version. No framework supports every strategy in the diagram.
+\*Whether a strategy is available depends on the framework and its version. 
 
 - **It's the same TP in both.** TP in PyTorch and TP in vLLM split the weight matrices the same way. What differs is what runs around the split: training also has a backward pass, gradients and an optimizer.
 
