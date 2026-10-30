@@ -12,9 +12,9 @@ const SERIF = "ui-serif, Georgia, serif";
 
 // The first entry is the site default and needs no extra stylesheet.
 const FONTS: Font[] = [
-  { name: "Google Sans Code", stack: "" },
+  { name: "Fira Code", stack: "" },
+  { name: "Google Sans Code", stack: MONO },
   { name: "JetBrains Mono", stack: MONO },
-  { name: "Fira Code", stack: MONO },
   { name: "IBM Plex Mono", stack: MONO },
   { name: "Inter", stack: SANS },
   { name: "IBM Plex Sans", stack: SANS },

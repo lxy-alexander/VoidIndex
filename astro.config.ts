@@ -63,12 +63,12 @@ export default defineConfig({
   },
   fonts: [
     {
-      name: "Google Sans Code",
-      cssVariable: "--font-google-sans-code",
+      name: "Fira Code",
+      cssVariable: "--font-fira-code",
       provider: fontProviders.google(),
       fallbacks: ["monospace"],
       weights: [300, 400, 500, 600, 700],
-      styles: ["normal", "italic"],
+      styles: ["normal"],
       formats: ["woff", "ttf"],
     },
   ],
