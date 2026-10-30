@@ -22,7 +22,7 @@ flowchart TD
     I --> IS["Strategies: DP, TP, PP, EP, CP*"]
 ```
 
-\*Whether a strategy is available depends on the framework and its version. 
+Whether a strategy is available depends on the framework and its version. 
 
 - **It's the same TP in both.** TP in PyTorch and TP in vLLM split the weight matrices the same way. What differs is what runs around the split: training also has a backward pass, gradients and an optimizer.
 
