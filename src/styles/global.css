@@ -141,3 +141,18 @@ html.dark .toc-aside li a.active {
 .mermaid-viewer svg .edgeLabel {
   @apply text-xs;
 }
+
+/* Font picker (scripts/font.ts) */
+html[data-font] body,
+html[data-font] .font-app {
+  font-family: var(--user-font);
+}
+.font-menu {
+  @apply border-border bg-background absolute top-full right-0 z-50 mt-2 flex w-52 flex-col rounded-md border p-1 shadow-lg;
+}
+.font-menu button {
+  @apply hover:bg-muted rounded px-3 py-2 text-left text-sm;
+}
+.font-menu button[aria-checked="true"] {
+  @apply text-accent font-semibold;
+}
