@@ -169,6 +169,9 @@ html[data-font] .font-app {
 .edit-btn {
   @apply bg-background border-border text-foreground hover:text-accent fixed right-6 bottom-6 z-40 flex size-12 items-center justify-center rounded-full border shadow-lg transition-colors;
 }
+.edit-btn[hidden] {
+  @apply hidden;
+}
 .edit-btn[style*="left"] {
   @apply right-auto bottom-auto;
 }
@@ -212,4 +215,10 @@ html[data-font] .font-app {
 }
 .edit-toast {
   @apply bg-foreground text-background fixed right-6 bottom-22 z-50 max-w-sm rounded-md px-4 py-3 text-sm shadow-lg;
+}
+#article mark {
+  @apply rounded-sm bg-yellow-200/80 px-0.5 text-inherit dark:bg-yellow-500/30;
+}
+#article pre.edit-code {
+  @apply bg-muted/60 rounded-md p-4 font-mono text-sm whitespace-pre-wrap;
 }
