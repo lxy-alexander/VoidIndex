@@ -34,7 +34,7 @@ Whether a strategy is available depends on the framework and its version.
 | **DDP** | Data parallelism that all-reduces gradients after every backward pass. | Common | Not needed |
 | **FSDP** | Shards parameters, gradients and optimizer states across GPUs, and gathers each layer's weights just before use. | Common | Usually not used |
 | **ZeRO** | Removes duplicate copies of optimizer states, gradients and parameters across data-parallel GPUs. | Common | Usually not used |
-| **TP** | Splits each weight matrix across GPUs, so every GPU computes a slice of every layer. | Common | Common |
+| **TP** | Split the tensors, distribute the computation to different GPUs. | Common | Common |
 | **PP** | Puts different layers on different GPUs and streams micro-batches through them. | Common | Common |
 | **CP** | Splits a long sequence across GPUs, attention included. | Available | Depends on framework |
 | **SP** | Splits the sequence-dimension activations that TP leaves replicated, such as LayerNorm and dropout. | Available | Depends on framework |
@@ -82,7 +82,7 @@ The usual layout is nested by bandwidth: DP/FSDP replicas across the cluster, PP
 
 - **Problem:** TP leaves LayerNorm and dropout replicated on every TP rank. That's the `10sbh` term in TP activation memory, `sbh(10 + 24/t + 5as/(ht))` [[3]](https://arxiv.org/abs/2205.05198).
 - **Fix:** those ops are independent per token, so SP splits them along the sequence. Each TP all-reduce becomes an all-gather plus a reduce-scatter. A ring all-reduce is exactly those two steps, so bandwidth is unchanged.
-- **Result:** activation memory becomes `sbh(34 + 5as/h)/t`, i.e. fully divided by `t`.
+- **Result:** activation memory becomes `sbh(34 + 5as/h)/t`, i.e. fully divided by `t`
 
 ### PP (pipeline parallelism)
 
