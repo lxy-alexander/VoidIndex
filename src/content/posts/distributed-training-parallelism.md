@@ -31,7 +31,7 @@ Whether a strategy is available depends on the framework and its version.
 | Concept | General meaning | Training | Inference |
 |---|---|---|---|
 | **DP** | Each GPU keeps a full copy of the model and processes different data. | Different training data | Different inference requests |
-| **DDP** | Data parallelism that all-reduces gradients after every backward pass. | Common | Not needed |
+| **DDP** | DDP belongs to DP, Each GPU trains on different data and synchronizes the gradients using All-Reduce. | Common | Not needed |
 | **FSDP** | Shards parameters, gradients and optimizer states across GPUs, and gathers each layer's weights just before use. | Common | Usually not used |
 | **ZeRO** | Removes duplicate copies of optimizer states, gradients and parameters across data-parallel GPUs. | Common | Usually not used |
 | **TP** | Split the tensors, distribute the computation to different GPUs. | Common | Common |
