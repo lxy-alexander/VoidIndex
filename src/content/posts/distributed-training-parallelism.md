@@ -1,5 +1,5 @@
 ---
-title: Parallelism Strategies in Distributed Training
+title: Parallelism Strategies in Distributed Computing
 description: One map of DP, DDP, FSDP, ZeRO, TP, PP, CP, SP and EP across training and inference, what each costs, and which ones vLLM supports.
 pubDatetime: 2026-10-30T02:09:46Z
 tags:
