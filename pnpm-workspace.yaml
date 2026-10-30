@@ -1,3 +1,5 @@
 allowBuilds:
   esbuild: true
   sharp: true
+  # wrangler's local runtime; only needed for `wrangler dev`, not for deploys.
+  workerd: false
