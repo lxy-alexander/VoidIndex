@@ -40,6 +40,9 @@ export default defineConfig({
   markdown: {
     // Mermaid blocks are rendered client-side by src/scripts/mermaid.ts.
     syntaxHighlight: { type: "shiki", excludeLangs: ["mermaid"] },
+    // Keep quotes and dashes as written so in-page edits (scripts/edit.ts)
+    // round-trip to the exact source text.
+    smartypants: false,
     processor: unified({
       remarkPlugins: [
         remarkToc,

@@ -12,14 +12,26 @@ const EDITABLE = "#article [data-md-s]";
 
 type Block = { el: HTMLElement; before: string };
 
+// A loose list item renders as <li><p>, and both carry the same offsets;
+// edit only the innermost one.
+function editables(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>(EDITABLE)].filter(
+    el => !el.querySelector("[data-md-s]")
+  );
+}
+
 let blocks: Block[] = [];
 
 // Inline HTML back to Markdown: bold, italic, code and links survive.
 function toMarkdown(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
-    return (node.textContent ?? "")
-      .replace(/\u00a0/g, " ")
-      .replace(/\u200b/g, "");
+    return (
+      (node.textContent ?? "")
+        .replace(/\u00a0/g, " ")
+        .replace(/\u200b/g, "")
+        // A literal asterisk in the text must stay literal in Markdown.
+        .replace(/\*/g, "\\*")
+    );
   }
   if (!(node instanceof HTMLElement)) return "";
   const inner = () => [...node.childNodes].map(toMarkdown).join("");
@@ -248,7 +260,7 @@ function setupEdit(): void {
     btn.setAttribute("aria-label", editing ? "Save and publish" : "Edit page");
     btn.title = btn.getAttribute("aria-label")!;
     article.classList.toggle("editing", editing);
-    document.querySelectorAll<HTMLElement>(EDITABLE).forEach(el => {
+    editables().forEach(el => {
       if (editing) el.contentEditable = "true";
       else el.removeAttribute("contenteditable");
     });
@@ -257,12 +269,10 @@ function setupEdit(): void {
   btn.addEventListener("click", async () => {
     if (btn.dataset.mode === "saving") return;
     if (btn.dataset.mode !== "editing") {
-      blocks = [...document.querySelectorAll<HTMLElement>(EDITABLE)].map(
-        el => ({
-          el,
-          before: blockMarkdown(el),
-        })
-      );
+      blocks = editables().map(el => ({
+        el,
+        before: blockMarkdown(el),
+      }));
       setMode(true);
       return;
     }

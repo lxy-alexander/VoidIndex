@@ -19,9 +19,18 @@ type Node = {
 const TAGGED = new Set(["heading", "paragraph", "tableCell"]);
 
 function tag(node: Node): void {
-  if (TAGGED.has(node.type) && node.children?.length) {
-    const s = node.children[0].position?.start.offset;
-    const e = node.children.at(-1)?.position?.end.offset;
+  // Tight list items render without a <p>, so tag the <li> itself when it
+  // holds a single paragraph.
+  const only = node.children?.length === 1 ? node.children[0] : undefined;
+  const source =
+    node.type === "listItem" && only?.type === "paragraph"
+      ? only
+      : TAGGED.has(node.type)
+        ? node
+        : undefined;
+  if (source?.children?.length) {
+    const s = source.children[0].position?.start.offset;
+    const e = source.children.at(-1)?.position?.end.offset;
     if (s !== undefined && e !== undefined) {
       node.data = {
         ...node.data,
