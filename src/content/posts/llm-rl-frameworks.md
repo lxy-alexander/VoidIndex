@@ -1,5 +1,5 @@
 ---
-title: "Open-Source RL Frameworks for LLMs: verl, OpenRLHF, TRL, and More"
+title: "Open-Source RL Frameworks for LLMs: verl, OpenRLHF, TRL, NeMo RL,	ROLL,	slime, AReaL"
 description: A side-by-side comparison of the popular LLM RL training frameworks — verl, OpenRLHF, TRL, NeMo RL, ROLL, slime, AReaL — and a deep dive into verl's system design.
 pubDatetime: 2026-10-29T12:00:00Z
 tags:
