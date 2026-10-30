@@ -143,6 +143,30 @@ function buildEdits(body: string, raw: string, bodyStart: number): Edit[] {
     }
   };
 
+  // New blocks typed above an existing block, with something un-editable
+  // (code, a diagram) between them and the block before: they go right in
+  // front of the following block instead.
+  let pending: { el: HTMLElement; md: string }[] = [];
+  const insertBefore = (el: HTMLElement) => {
+    if (!pending.length) return;
+    const at =
+      raw.lastIndexOf("\n", bodyStart + Number(el.dataset.mdS) - 1) +
+      1 -
+      bodyStart;
+    const insert: Edit = { s: at, e: at, text: "", pieces: [] };
+    for (const { el: block, md } of pending) {
+      const prefix = blockPrefix(block, "");
+      insert.pieces.push({
+        el: block,
+        start: insert.text.length + prefix.length,
+        length: md.length,
+      });
+      insert.text += prefix + md + "\n\n";
+    }
+    edits.push(insert);
+    pending = [];
+  };
+
   for (const el of units(true)) {
     // A block merged into the one above: drop its source up to its end.
     if (el.dataset.deleted !== undefined) {
@@ -151,6 +175,7 @@ function buildEdits(body: string, raw: string, bodyStart: number): Edit[] {
     }
     if (el.dataset.new === undefined) {
       flush();
+      insertBefore(el);
       const converted = el.dataset.was !== undefined;
       let s = Number(el.dataset.mdS);
       const e = Number(el.dataset.mdE);
@@ -185,8 +210,13 @@ function buildEdits(body: string, raw: string, bodyStart: number): Edit[] {
       continue;
     }
     const inline = unitMarkdown(el);
+    // An empty new line has nothing to save.
+    if (!inline || !current) continue;
     el.dataset.dirty = "";
-    if (!current) continue;
+    if (pending.length || (prev && !adjacent(prev, el))) {
+      pending.push({ el, md: inline });
+      continue;
+    }
     const sameList =
       el.tagName === "LI" &&
       prev?.tagName === "LI" &&
@@ -202,13 +232,101 @@ function buildEdits(body: string, raw: string, bodyStart: number): Edit[] {
     current.text += inline;
     prev = el;
   }
+  // Nothing follows: append what is left after the last block.
+  for (const { el, md } of pending) {
+    if (!current) break;
+    const prefix = blockPrefix(el, "");
+    current.text += "\n\n" + prefix;
+    current.pieces.push({ el, start: current.text.length, length: md.length });
+    current.text += md;
+    el.dataset.dirty = "";
+  }
   flush();
   return edits;
 }
 
 type Result = "saved" | "unchanged" | "cancelled";
 
-async function save(path: string): Promise<Result> {
+// Unpublished edits, per post: the edited .md file, the edited article HTML
+// (so a reload shows the draft), and the hash of the version it started from.
+const DRAFTS_KEY = "edit-drafts";
+type Draft = {
+  raw: string;
+  html: string;
+  hash: string;
+  baseHash: string;
+  title: string;
+};
+
+function readDrafts(): Record<string, Draft> {
+  try {
+    return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeDrafts(drafts: Record<string, Draft>): void {
+  if (Object.keys(drafts).length) {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } else {
+    localStorage.removeItem(DRAFTS_KEY);
+  }
+}
+
+function splitBody(raw: string) {
+  // Offsets are relative to the trimmed body after the frontmatter.
+  const fm = raw.match(/^---\r?\n[\s\S]*?\r?\n---/)?.[0] ?? "";
+  const rest = raw.slice(fm.length);
+  const bodyStart = fm.length + (rest.length - rest.trimStart().length);
+  return { fm, bodyStart, body: rest.trim() };
+}
+
+// Hash of the version this page was built from, before any draft is applied.
+let deployedHash = "";
+
+async function githubHeaders(): Promise<Record<string, string> | null> {
+  const token = await getToken();
+  if (!token) return null;
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+  };
+}
+
+async function api(
+  path: string,
+  headers: Record<string, string>,
+  init: RequestInit = {}
+): Promise<unknown> {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/${path}`, {
+    ...init,
+    headers,
+  });
+  if (res.status === 401) forget();
+  if (!res.ok) throw new Error(`GitHub request failed (${res.status})`);
+  return res.json();
+}
+
+// The note's current source on GitHub. Public repo, so no token is needed;
+// fall back to the token if the anonymous rate limit is hit.
+async function fetchSource(path: string): Promise<string> {
+  const url = `https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`;
+  let res = await fetch(url, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (res.status === 403 || res.status === 429) {
+    const headers = await githubHeaders();
+    if (!headers)
+      throw new Error("GitHub rate limit reached; unlock to continue.");
+    res = await fetch(url, { headers });
+  }
+  if (!res.ok) throw new Error(`Reading the file failed (${res.status})`);
+  return decodeBase64(((await res.json()) as { content: string }).content);
+}
+
+// Apply this page's edits to the note and keep the result as a local draft.
+async function saveDraft(path: string): Promise<Result> {
   const dirty =
     document.querySelector("#article [data-deleted]") !== null ||
     units().some(
@@ -219,27 +337,11 @@ async function save(path: string): Promise<Result> {
     );
   if (!dirty) return "unchanged";
 
-  const token = await getToken();
-  if (!token) return "cancelled";
-  const api = `https://api.github.com/repos/${REPO}/contents/${path}`;
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-  };
-
-  const res = await fetch(`${api}?ref=${BRANCH}`, { headers });
-  if (res.status === 401) forget();
-  if (!res.ok) throw new Error(`Reading the file failed (${res.status})`);
-  const file = (await res.json()) as { content: string; sha: string };
-  const raw = decodeBase64(file.content);
-
-  // Offsets are relative to the trimmed body after the frontmatter.
-  const fm = raw.match(/^---\r?\n[\s\S]*?\r?\n---/)?.[0] ?? "";
-  const rest = raw.slice(fm.length);
-  const bodyStart = fm.length + (rest.length - rest.trimStart().length);
-  const body = rest.trim();
-  const hashEl = document.querySelector<HTMLElement>("#md-source");
-  if ((await sha1(body)) !== hashEl?.dataset.hash) {
+  const drafts = readDrafts();
+  const hashEl = document.querySelector<HTMLElement>("#md-source")!;
+  const raw = drafts[path]?.raw ?? (await fetchSource(path));
+  const { fm, bodyStart, body } = splitBody(raw);
+  if ((await sha1(body)) !== hashEl.dataset.hash) {
     throw new Error(
       "The note changed since this page was built. Reload after the deploy finishes, then edit again."
     );
@@ -247,27 +349,11 @@ async function save(path: string): Promise<Result> {
 
   const edits = buildEdits(body, raw, bodyStart);
   let next = raw;
-  for (const { s, e, text } of [...edits].sort((a, b) => b.s - a.s)) {
+  for (const { s, e, text } of [...edits].sort(
+    (a, b) => b.s - a.s || b.e - a.e
+  )) {
     next = next.slice(0, bodyStart + s) + text + next.slice(bodyStart + e);
   }
-
-  const title =
-    document
-      .querySelector("main h1")
-      ?.textContent?.replace(/\s+/g, " ")
-      .trim() ?? path;
-  const put = await fetch(api, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({
-      message: `Edit: ${title}`,
-      content: encodeBase64(next),
-      sha: file.sha,
-      branch: BRANCH,
-    }),
-  });
-  if (put.status === 401) forget();
-  if (!put.ok) throw new Error(`Saving failed (${put.status})`);
 
   // Recompute offsets so the next save on this page lands in the right place.
   const delta = (x: Edit) => x.text.length - (x.e - x.s);
@@ -285,14 +371,10 @@ async function save(path: string): Promise<Result> {
     }
   }
   document.querySelectorAll<HTMLElement>("#article [data-md-s]").forEach(el => {
-    if (placed.has(el)) return;
-    const inner = el.querySelector<HTMLElement>("[data-md-s]");
-    if (inner) return;
-    const s = Number(el.dataset.mdS);
-    const e = Number(el.dataset.mdE);
-    const shift = shiftBefore(s);
-    el.dataset.mdS = String(s + shift);
-    el.dataset.mdE = String(e + shift);
+    if (placed.has(el) || el.querySelector("[data-md-s]")) return;
+    const shift = shiftBefore(Number(el.dataset.mdS));
+    el.dataset.mdS = String(Number(el.dataset.mdS) + shift);
+    el.dataset.mdE = String(Number(el.dataset.mdE) + shift);
   });
   // A loose <li> mirrors its inner <p>.
   document
@@ -311,6 +393,98 @@ async function save(path: string): Promise<Result> {
     delete el.dataset.dirty;
   }
   hashEl.dataset.hash = await sha1(next.slice(fm.length).trim());
+
+  const article = document.querySelector<HTMLElement>("#article")!;
+  const snapshot = article.cloneNode(true) as HTMLElement;
+  snapshot
+    .querySelectorAll("[contenteditable]")
+    .forEach(el => el.removeAttribute("contenteditable"));
+  drafts[path] = {
+    raw: next,
+    html: snapshot.innerHTML,
+    hash: hashEl.dataset.hash,
+    baseHash: drafts[path]?.baseHash ?? deployedHash,
+    title:
+      document
+        .querySelector("main h1")
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim() ?? path,
+  };
+  writeDrafts(drafts);
+  return "saved";
+}
+
+// Show a saved draft after a reload, or drop it once it has been deployed.
+function restoreDraft(path: string, article: HTMLElement): void {
+  const drafts = readDrafts();
+  const draft = drafts[path];
+  if (!draft) return;
+  if (draft.hash === deployedHash) {
+    delete drafts[path];
+    writeDrafts(drafts);
+  } else if (draft.baseHash === deployedHash) {
+    article.innerHTML = draft.html;
+  } else {
+    toast(
+      "This note changed on GitHub after your draft was made; publishing it will be refused."
+    );
+  }
+}
+
+// Commit every draft in one commit through the Git Data API.
+async function publishDrafts(): Promise<Result> {
+  const drafts = readDrafts();
+  const paths = Object.keys(drafts);
+  if (!paths.length) return "unchanged";
+  const headers = await githubHeaders();
+  if (!headers) return "cancelled";
+
+  const ref = (await api(`git/ref/heads/${BRANCH}`, headers)) as {
+    object: { sha: string };
+  };
+  const head = ref.object.sha;
+  const commit = (await api(`git/commits/${head}`, headers)) as {
+    tree: { sha: string };
+  };
+
+  // Refuse if a note changed on GitHub since its draft was started.
+  for (const path of paths) {
+    const file = (await api(`contents/${path}?ref=${head}`, headers)) as {
+      content: string;
+    };
+    const { body } = splitBody(decodeBase64(file.content));
+    if ((await sha1(body)) !== drafts[path].baseHash) {
+      throw new Error(
+        `"${drafts[path].title}" changed on GitHub since you started editing. Nothing was published.`
+      );
+    }
+  }
+
+  const tree = (await api("git/trees", headers, {
+    method: "POST",
+    body: JSON.stringify({
+      base_tree: commit.tree.sha,
+      tree: paths.map(path => ({
+        path,
+        mode: "100644",
+        type: "blob",
+        content: drafts[path].raw,
+      })),
+    }),
+  })) as { sha: string };
+  const message =
+    paths.length === 1
+      ? `Edit: ${drafts[paths[0]].title}`
+      : `Edit ${paths.length} notes\n\n${paths.map(p => `- ${drafts[p].title}`).join("\n")}`;
+  const created = (await api("git/commits", headers, {
+    method: "POST",
+    body: JSON.stringify({ message, tree: tree.sha, parents: [head] }),
+  })) as { sha: string };
+  await api(`git/refs/heads/${BRANCH}`, headers, {
+    method: "PATCH",
+    body: JSON.stringify({ sha: created.sha, force: false }),
+  });
+  writeDrafts({});
   return "saved";
 }
 
@@ -707,6 +881,16 @@ function onKeyDown(e: KeyboardEvent): void {
       placeCaret(p);
       return;
     }
+    // Enter at the very start of a block opens an empty line above it and
+    // leaves the block (e.g. a heading) as it is.
+    if (text && atBoundary(unit, false)) {
+      const isItem =
+        unit.tagName === "LI" || unit.parentElement?.tagName === "LI";
+      const above = makeUnit(isItem ? "LI" : "P");
+      above.append(ZWSP);
+      (isItem ? unit.closest("li")! : unit).before(above);
+      return;
+    }
     // Move whatever follows the caret into a new block after this one.
     const range = sel.getRangeAt(0);
     // Leave a heading's "#" anchor link where it is.
@@ -774,7 +958,7 @@ function onKeyDown(e: KeyboardEvent): void {
 
 // Place the button midway between the article and the Content sidebar,
 // halfway down the screen; fall back to the corner when there is no sidebar.
-function placeButton(btn: HTMLElement): void {
+function placeButton(btn: HTMLElement, offsetY = 0): void {
   const article = document.querySelector("#article");
   const toc = document.querySelector("#toc-aside .toc-aside-nav");
   const tocBox = toc?.getBoundingClientRect();
@@ -785,33 +969,54 @@ function placeButton(btn: HTMLElement): void {
   }
   const gapStart = article.getBoundingClientRect().right;
   btn.style.left = `${(gapStart + tocBox.left) / 2 - btn.offsetWidth / 2}px`;
-  btn.style.top = `calc(50% - ${btn.offsetHeight / 2}px)`;
+  btn.style.top = `calc(50% - ${btn.offsetHeight / 2 - offsetY}px)`;
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 function setupEdit(): void {
   const btn = document.querySelector<HTMLButtonElement>("#edit-btn");
+  const pub = document.querySelector<HTMLButtonElement>("#publish-btn");
   const article = document.querySelector<HTMLElement>("#article");
   const path = article?.dataset.path;
-  if (!btn || !article || !path) return;
+  if (!btn || !pub || !article || !path) return;
 
-  // Visitors never see the button: it shows only once this browser holds an
+  // Visitors never see the buttons: they show only once this browser holds an
   // encrypted token, or when the page is opened with ?edit to set one up.
   const owner = hasVault() || new URLSearchParams(location.search).has("edit");
   if (!owner) return;
   btn.hidden = false;
 
-  placeButton(btn);
-  window.addEventListener("resize", () => placeButton(btn));
+  deployedHash =
+    document.querySelector<HTMLElement>("#md-source")?.dataset.hash ?? "";
+  restoreDraft(path, article);
+
+  const place = () => {
+    placeButton(btn);
+    placeButton(pub, 60);
+  };
+  place();
+  window.addEventListener("resize", place);
   article.addEventListener("input", onInput);
   article.addEventListener("keydown", onKeyDown);
 
-  const setMode = (mode: string, label: string) => {
-    btn.dataset.mode = mode;
-    btn.setAttribute("aria-label", label);
-    btn.title = label;
+  const setMode = (el: HTMLElement, mode: string, label: string) => {
+    el.dataset.mode = mode;
+    el.setAttribute("aria-label", label);
+    el.title = label;
   };
+
+  // The publish button shows how many notes have unpublished drafts.
+  const refreshPublish = () => {
+    const count = Object.keys(readDrafts()).length;
+    pub.hidden = count === 0 && pub.dataset.mode === "idle";
+    pub.querySelector(".edit-badge")!.textContent = String(count);
+    if (pub.dataset.mode === "idle") {
+      setMode(pub, "idle", `Publish ${count} draft${count === 1 ? "" : "s"}`);
+    }
+    place();
+  };
+  refreshPublish();
 
   const setEditing = (editing: boolean) => {
     article.classList.toggle("editing", editing);
@@ -821,11 +1026,32 @@ function setupEdit(): void {
     });
   };
 
-  // Show a result icon for two seconds, then return to `mode`.
-  const flash = async (result: string, label: string, mode: string) => {
-    setMode(result, label);
-    await sleep(2000);
-    setMode(mode, mode === "editing" ? "Save and publish" : "Edit page");
+  // Run an action with a spinning ring, then flash the result for two seconds.
+  const run = async (
+    el: HTMLElement,
+    action: () => Promise<Result>,
+    labels: { saved: string; after: string; afterLabel: string }
+  ): Promise<Result | "failed"> => {
+    setMode(el, "saving", "Working…");
+    const started = Date.now();
+    try {
+      const result = await action();
+      await sleep(Math.max(0, 1000 - (Date.now() - started)));
+      if (result === "cancelled") return result;
+      setMode(
+        el,
+        result === "saved" ? "saved" : "unchanged",
+        result === "saved" ? labels.saved : "No changes"
+      );
+      await sleep(2000);
+      setMode(el, labels.after, labels.afterLabel);
+      return result;
+    } catch (error) {
+      toast((error as Error).message);
+      setMode(el, "failed", "Failed");
+      await sleep(2000);
+      return "failed";
+    }
   };
 
   btn.addEventListener("click", async () => {
@@ -833,31 +1059,53 @@ function setupEdit(): void {
     if (mode === "idle") {
       before = new Map(units().map(el => [el, unitMarkdown(el)]));
       setEditing(true);
-      setMode("editing", "Save and publish");
+      setMode(btn, "editing", "Save draft");
       return;
     }
     if (mode !== "editing") return;
-    setMode("saving", "Saving…");
-    const started = Date.now();
-    try {
-      const result = await save(path);
-      // Let the ring finish at least one turn.
-      await sleep(Math.max(0, 1000 - (Date.now() - started)));
-      if (result === "cancelled") {
-        setMode("editing", "Save and publish");
-        return;
-      }
-      setEditing(false);
-      if (result === "unchanged") {
-        await flash("unchanged", "No changes", "idle");
-      } else {
-        toast("Saved and pushed. The live site updates in about 1–2 minutes.");
-        await flash("saved", "Saved", "idle");
-      }
-    } catch (error) {
-      toast((error as Error).message);
-      await flash("failed", "Save failed", "editing");
+    const result = await run(btn, () => saveDraft(path), {
+      saved: "Draft saved",
+      after: "idle",
+      afterLabel: "Edit page",
+    });
+    if (result === "cancelled" || result === "failed") {
+      setMode(btn, "editing", "Save draft");
+      return;
     }
+    setEditing(false);
+    if (result === "saved")
+      toast("Draft saved on this device. Publish when you're done.");
+    refreshPublish();
+  });
+
+  pub.addEventListener("click", async () => {
+    if (pub.dataset.mode !== "idle") return;
+    const drafts = readDrafts();
+    const titles = Object.values(drafts)
+      .map(d => `• ${d.title}`)
+      .join("\n");
+    if (!titles) return;
+    // Alt-click throws the drafts away instead.
+    if (window.event instanceof MouseEvent && window.event.altKey) {
+      if (confirm(`Discard unpublished drafts?\n\n${titles}`)) {
+        writeDrafts({});
+        location.reload();
+      }
+      return;
+    }
+    if (!confirm(`Publish these notes in one commit?\n\n${titles}`)) return;
+    const result = await run(pub, publishDrafts, {
+      saved: "Published",
+      after: "idle",
+      afterLabel: "Publish",
+    });
+    if (result === "saved") {
+      toast("Published. The live site updates in about 1–2 minutes.");
+    }
+    if (result !== "failed" && result !== "cancelled")
+      setMode(pub, "idle", "Publish");
+    else setMode(pub, "idle", "Publish");
+    refreshPublish();
   });
 
   // Keep links from navigating away while editing.

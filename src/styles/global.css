@@ -246,3 +246,13 @@ html[data-font] .font-app {
 .vault-actions .vault-extra {
   @apply text-muted-foreground me-auto;
 }
+#publish-btn:not([style*="left"]) {
+  @apply bottom-22;
+}
+.edit-badge {
+  @apply bg-accent text-accent-foreground absolute -top-1 -right-1 flex size-5 items-center justify-center rounded-full text-[11px] font-semibold;
+}
+#publish-btn[data-mode="saved"] .edit-badge,
+#publish-btn[data-mode="saving"] .edit-badge {
+  @apply hidden;
+}
