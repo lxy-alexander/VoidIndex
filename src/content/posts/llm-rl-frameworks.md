@@ -43,191 +43,239 @@ flowchart LR
 
 ### verl
 
-**What it is**: ByteDance Seed's framework, now run by the verl community, and the open-source code behind the HybridFlow paper [[3]](https://arxiv.org/abs/2409.19256). It is the most widely used general-purpose LLM RL framework.
+**What it is**: ByteDance Seed's framework, now run by the verl community, and the open-source code behind the HybridFlow paper [[3]](https://arxiv.org/abs/2409.19256). The most widely used general-purpose LLM RL framework.
 
-**How it works**
+**Architecture**
 
-- A **single controller** (one Python process) writes the RL loop; **worker groups** on many GPUs run each role.
-- Training on FSDP / FSDP2 / Megatron-LM; generation on vLLM, SGLang, or HF Transformers.
-- The **3D-HybridEngine** reshards weights so training and generation can share the same GPUs.
-- Resource pools decide which roles share GPUs and which get their own.
+```mermaid
+flowchart TB
+  C["Single controller: RL loop in one Python process"]
+  subgraph POOL["Resource pool (shared GPUs)"]
+    direction LR
+    R["Rollout workers: vLLM / SGLang"]
+    A["Actor workers: FSDP / Megatron"]
+    REF["Reference + critic workers"]
+  end
+  RW["Reward: rules / model"]
+  C -- "1 generate" --> R
+  C -- "2 score" --> RW
+  C -- "3 log-probs, values" --> REF
+  C -- "4 update" --> A
+  A -. "3D-HybridEngine: reshard weights" .-> R
+```
 
-**Strengths**
+**The key part: one brain, many hands (HybridFlow)**
 
-- Widest algorithm list: PPO, GRPO, GSPO, DAPO, REINFORCE++, RLOO, Dr. GRPO.
-- Scales from one node to very large MoE models; agentic multi-turn and multimodal RL are supported.
-- Sync and async modes, so you can start simple and add overlap later.
+- **Single controller**: the whole RL algorithm is a short loop — generate → score → compute advantage → update. It reads like ordinary Python, so changing PPO to GRPO only touches this loop.
+- **Worker groups**: each role is a group of GPU processes running the same program (SPMD). When the controller calls a role, verl splits the batch across that group's GPUs and gathers the results.
+- **3D-HybridEngine**: actor and rollout share the same GPUs. After training, the same weights are re-cut from the training layout (FSDP/Megatron shards) into the inference layout (vLLM/SGLang tensor parallel) without keeping a second copy. Optimizer state is freed during generation so the KV cache has room.
 
-**Watch out**: many config knobs, and newer features (async trainer, Omni/VLA) live in experimental modules.
+**Strengths**: the widest algorithm list (PPO, GRPO, GSPO, DAPO, REINFORCE++, RLOO, Dr. GRPO); runs from one node to very large MoE; sync, colocate-async, and separate-async modes [[2]](https://verl.readthedocs.io/en/latest/).
 
-**Use it when**: you want one framework that covers research and production-scale runs. Details in the deep dive below.
+**Watch out**: many config knobs; the async trainer and Omni/VLA support live in experimental modules.
+
+**Use it when**: you want one framework for both research and production-scale runs.
 
 ### OpenRLHF
 
-**What it is**: a community framework built on Ray, DeepSpeed, and vLLM, aimed at being easy to read and easy to scale [[5]](https://github.com/OpenRLHF/OpenRLHF).
+**What it is**: a community framework built on Ray, DeepSpeed, and vLLM, designed to be easy to read and easy to scale [[5]](https://github.com/OpenRLHF/OpenRLHF).
 
-**How it works**
+**Architecture**
 
-- Ray places the four RLHF models — actor, critic, reward model, reference model — on separate or shared GPUs.
-- **DeepSpeed ZeRO-3** trains the actor and critic; **vLLM** generates, and weights are pushed to vLLM after each update.
-- A **hybrid-engine** mode colocates training and vLLM on the same GPUs to save hardware.
+```mermaid
+flowchart LR
+  subgraph RAY["Ray cluster"]
+    direction TB
+    V["vLLM engines: generate"]
+    ACT["Actor: DeepSpeed ZeRO-3"]
+    CRI["Critic: DeepSpeed"]
+    RM["Reward model"]
+    REF["Reference model"]
+  end
+  V -- "samples" --> RM
+  V -- "samples" --> REF
+  V -- "samples" --> CRI
+  RM --> ACT
+  REF --> ACT
+  CRI --> ACT
+  ACT -- "broadcast new weights" --> V
+```
 
-**Strengths**
+**The key part: four models, placed by Ray**
 
-- Full pipeline in one repo: SFT, reward model, DPO, and RL (PPO, REINFORCE++, GRPO, RLOO).
-- Compact code that is easy to follow, so it is a common base for research forks and papers.
-- Practical extras: sample packing, LoRA/QLoRA, and async and agent modes in newer versions.
+- PPO-style RLHF needs four models: **actor** (the policy), **critic** (value estimate), **reward model**, and **reference** (to keep the policy close to where it started).
+- **Ray** puts each model on its own GPUs or packs several together, so 70B-class models fit by spreading roles across nodes.
+- **vLLM** does generation; after each update the actor **broadcasts weights** to the vLLM engines (NCCL), so rollouts use the new policy.
+- **Hybrid engine** mode colocates everything on the same GPUs and sleeps vLLM during training to free memory.
 
-**Watch out**: built around DeepSpeed, so Megatron-style tensor/pipeline parallelism for very large MoE models is not its focus.
+**Strengths**: one repo for SFT, reward model, DPO, and RL (PPO, REINFORCE++, GRPO, RLOO); compact code that many research forks build on; sample packing and LoRA.
 
-**Use it when**: you want a readable PPO/GRPO stack for models up to roughly the 70B class and plan to modify the code.
+**Watch out**: built on DeepSpeed, so Megatron-style tensor/pipeline parallelism for giant MoE models isn't its focus.
+
+**Use it when**: you want a readable PPO/GRPO stack for models up to about 70B and expect to modify the code.
 
 ### TRL
 
-**What it is**: Hugging Face's post-training library, sitting directly on Transformers, Accelerate, and PEFT [[6]](https://github.com/huggingface/trl).
+**What it is**: Hugging Face's post-training library on top of Transformers, Accelerate, and PEFT [[6]](https://github.com/huggingface/trl).
 
-**How it works**
+**Architecture**
 
-- Each method is a **Trainer class**: `SFTTrainer`, `DPOTrainer`, `GRPOTrainer`, `RLOOTrainer`, `RewardTrainer`, and more.
-- Distributed training comes from **Accelerate** (DeepSpeed or FSDP under the hood).
-- vLLM speeds up generation in two ways: **server mode** (`trl vllm-serve` on separate GPUs) or **colocate mode** (inside the training process).
+```mermaid
+flowchart TB
+  U["Your script: GRPOTrainer(model, reward_funcs, dataset)"]
+  U --> T["Trainer loop (Transformers Trainer)"]
+  T --> ACC["Accelerate: DeepSpeed / FSDP / DDP"]
+  T -- "generate" --> G{"vLLM mode"}
+  G -- "server" --> S["trl vllm-serve on separate GPUs"]
+  G -- "colocate" --> CO["vLLM inside training process"]
+  T --> P["PEFT / LoRA (optional)"]
+```
 
-**Strengths**
+**The key part: a Trainer per method**
 
-- Lowest barrier to entry: a GRPO run is a few lines, and it works with any Hugging Face model.
-- LoRA via PEFT, a CLI (`trl sft`, `trl dpo`), and very good docs and examples.
-- Fast to adopt new methods from papers.
+- Every method is a **Trainer class** — `SFTTrainer`, `DPOTrainer`, `GRPOTrainer`, `RLOOTrainer`, `RewardTrainer`. You pass a model, a dataset, and (for GRPO) reward functions; the trainer runs the whole loop.
+- Scaling comes from **Accelerate**, the same layer that runs normal Hugging Face fine-tuning, so DeepSpeed or FSDP configs carry over.
+- Generation is the slow part, so TRL uses **vLLM** in one of two modes: **server** (a separate `trl vllm-serve` process on its own GPUs, weights pushed each step) or **colocate** (vLLM in the same process, sharing GPUs).
 
-**Watch out**: the Trainer design is simpler than a Ray-based dataflow, so very large multi-node RL with separate rollout clusters is harder to tune.
+**Strengths**: lowest barrier to entry; works with any Hugging Face model; LoRA via PEFT; CLI (`trl sft`, `trl dpo`); excellent docs; adds new methods from papers quickly.
 
-**Use it when**: learning RL for LLMs, running single-node or small-cluster experiments, or fine-tuning small and mid-size models.
+**Watch out**: a single Trainer loop is simpler than a Ray dataflow, so large multi-node RL with separate rollout clusters is harder to tune.
+
+**Use it when**: learning, quick experiments, or single-node / small-cluster runs.
 
 ### NeMo RL
 
-**What it is**: NVIDIA's open-source RL library, part of the NeMo framework family [[7]](https://github.com/NVIDIA-NeMo/RL).
+**What it is**: NVIDIA's open-source RL library in the NeMo family [[7]](https://github.com/NVIDIA-NeMo/RL).
 
-**How it works**
+**Architecture**
 
-- **Ray** orchestrates workers; a single-controller design similar in spirit to verl.
-- Two training backends: **DTensor** (PyTorch-native FSDP2 + TP) for quick start, and **Megatron-Core** for the largest models.
-- **vLLM** generates; weights move from trainer to generator after each step.
+```mermaid
+flowchart TB
+  C["Controller: GRPO / DPO / SFT algorithm"]
+  C --> E["Environments: math, code, multi-turn games, tools"]
+  C --> GEN["Generation workers: vLLM"]
+  C --> POL["Policy workers"]
+  POL --> B{"Training backend"}
+  B --> DT["DTensor: FSDP2 + TP"]
+  B --> MG["Megatron-Core: TP / PP / CP / EP"]
+  POL -. "weight refit" .-> GEN
+  RAY["Ray: placement + workers"] -.- C
+```
 
-**Strengths**
+**The key part: two training backends behind one interface**
 
-- Covers SFT, DPO, reward models, and GRPO in one library.
-- Multi-turn environments for agent and tool-use training.
-- Tuned for NVIDIA hardware and scaling to large clusters with Megatron parallelism.
+- The algorithm code talks to an abstract **policy worker**. Underneath, you pick **DTensor** (PyTorch-native FSDP2 + tensor parallel, quick to start, works with Hugging Face checkpoints) or **Megatron-Core** (full TP/PP/context/expert parallel for the largest models).
+- **Environments** are first-class: a math verifier, a code sandbox, or a multi-turn game all plug in the same way, which makes agent training straightforward.
+- After each step, weights are **refit** from the training layout into vLLM.
 
-**Watch out**: a younger project with a smaller community than verl or OpenRLHF; fits best if you already use NeMo or Megatron.
+**Strengths**: SFT, DPO, reward models, and GRPO in one library; tuned for NVIDIA hardware; scales to large clusters with Megatron.
 
-**Use it when**: your team trains on the NVIDIA stack and wants Megatron-scale RL with official support.
+**Watch out**: younger and smaller community than verl or OpenRLHF; fits best if you already use NeMo/Megatron.
+
+**Use it when**: your team trains on the NVIDIA stack and wants Megatron-scale RL with vendor support.
 
 ### ROLL
 
 **What it is**: Alibaba's RL framework for large-scale and agentic training [[8]](https://github.com/alibaba/ROLL).
 
-**How it works**
+**Architecture**
 
-- Built around **roles** (actor, critic, reference, reward, environment) and **strategies** (the training or inference backend each role uses).
-- Training on Megatron-Core or FSDP2; generation on vLLM or SGLang.
-- **AutoDeviceMapping** maps each role to a set of GPUs, colocated or separate, from config.
-- A **rollout scheduler** manages generation per sample, so long or failed samples don't stall the batch.
+```mermaid
+flowchart TB
+  PL["Pipeline: RLVR / Agentic / DPO"]
+  PL --> SCH["Rollout scheduler: per-sample control"]
+  SCH --> ENV["Environment workers"]
+  SCH --> INF["Actor-infer: vLLM / SGLang strategy"]
+  PL --> TR["Actor-train: Megatron / FSDP2 strategy"]
+  PL --> RW["Reward workers: math, code, LLM judge"]
+  ADM["AutoDeviceMapping"] -. "assigns GPUs to each role" .-> INF
+  ADM -.-> TR
+  ADM -.-> RW
+  TR -. "sync weights" .-> INF
+```
 
-**Strengths**
+**The key part: roles + strategies + AutoDeviceMapping**
 
-- Pipelines for RLVR across many domains (math, code, general reasoning) and for agentic RL with environments.
-- Flexible GPU placement for very large clusters.
-- Async training options for higher throughput.
+- Every model is a **role** (actor-train, actor-infer, reference, critic, reward, environment). Each role picks a **strategy** — the backend that runs it (Megatron, FSDP2, vLLM, SGLang).
+- **AutoDeviceMapping** reads a config that says which GPUs each role gets, so the same pipeline can run colocated on 8 GPUs or spread over hundreds without code changes.
+- The **rollout scheduler** works per sample, not per batch: it can stop, retry, or route single samples to different reward workers (math checker, code sandbox, LLM judge), so slow or failed samples don't stall everyone.
 
-**Watch out**: documentation and community are smaller outside China; the role/strategy config takes time to learn.
+**Strengths**: ready pipelines for multi-domain RLVR and agentic RL; fine-grained GPU placement; async options for throughput.
 
-**Use it when**: you need agentic RL or fine control over where each role runs across many GPUs.
+**Watch out**: smaller English-language community; the role/strategy config takes time to learn.
+
+**Use it when**: you need agentic RL or precise control over where each role runs on a large cluster.
 
 ### slime
 
 **What it is**: the RL framework from Zhipu AI and Tsinghua (THUDM), used to post-train the GLM-4.5 series [[9]](https://github.com/THUDM/slime).
 
-**How it works**
+**Architecture**
 
-- Only two engines: **Megatron** trains, **SGLang** generates, with **Ray** connecting them.
-- A **data buffer** sits in the middle: it holds prompts and finished rollouts, and both sides read and write it.
-- Rollout logic is a plain function you can replace, so custom agents and multi-turn generation are easy to plug in.
-- Runs either **colocated** (sync) or **disaggregated** (async, separate rollout GPUs).
+```mermaid
+flowchart LR
+  subgraph TRAIN["Training: Megatron"]
+    M["Actor (TP / PP / EP)"]
+  end
+  subgraph BUF["Data buffer"]
+    D["Prompts + finished rollouts"]
+  end
+  subgraph ROLL["Rollout: SGLang"]
+    S["SGLang servers + router"]
+    F["Custom rollout function"]
+  end
+  D -- "prompts" --> F
+  F --> S
+  S -- "samples + rewards" --> D
+  D -- "training batch" --> M
+  M -- "update weights" --> S
+```
 
-**Strengths**
+**The key part: a data buffer between Megatron and SGLang**
 
-- Small, focused codebase — no backend matrix to maintain.
-- Proven at very large MoE scale with Megatron's full parallelism.
-- Uses SGLang natively, including its server-based API.
+- Only two engines: **Megatron** trains, **SGLang** generates, joined by Ray. No backend matrix to maintain.
+- The **data buffer** is the meeting point: it feeds prompts to rollout and hands finished samples to training. Because the two sides only talk through the buffer, they can run in lockstep (colocated, sync) or independently (separate GPUs, async).
+- Rollout logic is a **plain Python function** you can replace — multi-turn agents, tool calls, or custom sampling go there, calling SGLang's server API.
 
-**Watch out**: Megatron-only training means more setup (checkpoint conversion, parallel configs) than FSDP-based tools.
+**Strengths**: small, hackable codebase; proven on very large MoE with Megatron's full parallelism; native SGLang server features.
 
-**Use it when**: you train very large MoE models with Megatron and want a lean, hackable RL loop.
+**Watch out**: Megatron-only training means checkpoint conversion and parallel configs — more setup than FSDP tools.
+
+**Use it when**: you train very large MoE models with Megatron and want a lean RL loop.
 
 ### AReaL
 
 **What it is**: a fully asynchronous RL system from Ant Group and Tsinghua IIIS [[10]](https://github.com/inclusionAI/AReaL).
 
-**How it works**
-
-- Rollout workers **never stop generating**; trainers update as soon as enough samples arrive.
-- **Interruptible rollout**: new weights are loaded mid-generation, so a long answer can be finished by a newer policy.
-- A **staleness limit** caps how old a sample's policy version may be.
-- A **decoupled PPO objective** corrects for samples generated by older policies, keeping training stable.
-
-**Strengths**
-
-- Highest GPU use when answer lengths vary a lot, as in long reasoning; the paper reports up to about 2.8× faster training than sync systems [[11]](https://arxiv.org/abs/2505.24298).
-- **AReaL-lite** offers a smaller, algorithm-first API for research.
-- Strong results on math and code reasoning and on agentic tasks.
-
-**Watch out**: async RL is harder to debug and tune; stale data can hurt stability if the limits are loose.
-
-**Use it when**: generation time dominates your RL steps and you want to research or exploit fully async training.
-
-## verl deep dive
-
-### HybridFlow: one brain, many hands
-
-```mermaid
-flowchart TB
-  C["Single controller: RL trainer script"]
-  C --> R["Rollout workers (vLLM / SGLang)"]
-  C --> RW["Reward"]
-  C --> A["Advantage (GRPO / PPO)"]
-  C --> U["Actor update (FSDP / Megatron)"]
-  R --> D["Data passed between roles"]
-  RW --> D
-  D --> A --> U
-  U -. "new weights" .-> R
-```
-
-- **Single controller (MPMD)**: one process holds the RL loop — rollout → reward → advantage → policy update. It reads like plain Python.
-- **Multi-controller (SPMD)**: each role is a group of GPU workers running the same program in parallel (FSDP, Megatron, vLLM, SGLang).
-- **Dataflow abstraction**: the controller calls a role; verl splits data across that role's GPUs and gathers the results.
-
-The payoff: a new algorithm is a change to the controller script, not to the distributed system [[3]](https://arxiv.org/abs/2409.19256).
-
-### Train and generate on the same GPUs
+**Architecture**
 
 ```mermaid
 flowchart LR
-  T["Training layout (FSDP / Megatron shards)"] -- "reshard + sync weights" --> G["Generation layout (vLLM / SGLang TP)"]
-  G -- "rollouts" --> T
-  T -. "free optimizer and grads during rollout" .-> M["GPU memory reused"]
+  subgraph GEN["Rollout workers (never stop)"]
+    G["Generate"]
+  end
+  subgraph TRN["Trainer workers"]
+    T["Decoupled PPO update"]
+  end
+  G -- "finished samples + policy version" --> Q["Sample queue with staleness filter"]
+  Q --> T
+  T -- "new weights, loaded mid-generation" --> G
+  RW["Reward service"] --> Q
+  G --> RW
 ```
 
-The **3D-HybridEngine** switches roles, converts training weights into the inference engine's format, reshards across GPUs, removes duplicate weight copies, and reuses the same GPUs for both [[3]](https://arxiv.org/abs/2409.19256).
+**The key part: generation never waits**
 
-### Three ways to run
+- **Async by design**: rollout GPUs generate nonstop; trainers update as soon as a batch is ready. No GPU waits for the slowest answer.
+- **Interruptible rollout**: when new weights arrive, rollout workers load them mid-generation and keep going, so a long answer may be finished by a newer policy.
+- **Staleness limit**: each sample carries the policy version that made it; samples too many versions old are dropped.
+- **Decoupled PPO objective**: separates the policy that generated a sample from the one used for the trust-region check, so slightly stale data still trains stably. The paper reports up to about 2.8× faster training than synchronous systems [[11]](https://arxiv.org/abs/2505.24298).
 
-| Mode | How it runs | Trade-off |
-|---|---|---|
-| Sync | Generate, then train, in strict turns | Simple and on-policy; GPUs idle while waiting for the slowest sample |
-| Colocate Async | Both share one GPU pool and overlap | Better use of the same GPUs |
-| Separate Async | Rollout GPUs keep generating; trainer updates on another pool | Highest throughput; data is slightly off-policy |
+**Strengths**: highest GPU use when answer lengths vary a lot (long reasoning, agents); AReaL-lite offers a small algorithm-first API.
 
-The async path adds TransferQueue, a replay buffer, and partial rollout [[2]](https://verl.readthedocs.io/en/latest/).
+**Watch out**: async RL is harder to debug and tune; loose staleness limits can hurt stability.
+
+**Use it when**: generation time dominates your RL steps and you want fully async training.
 
 ## Key system optimizations
 
