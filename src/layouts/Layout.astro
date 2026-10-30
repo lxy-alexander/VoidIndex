@@ -111,6 +111,11 @@ const rssHref = getRelativeLocaleUrl(
         root?.classList.toggle("dark", theme === "dark");
         // Expose value so theme.ts can skip re-detection.
         window.__theme = { value: theme };
+        // ?edit on any page marks this browser as the owner's (the edit
+        // buttons then show on posts); ?edit=off forgets it.
+        const edit = new URLSearchParams(location.search).get("edit");
+        if (edit === "off") localStorage.removeItem("voidindex-owner");
+        else if (edit !== null) localStorage.setItem("voidindex-owner", "1");
         const width = localStorage.getItem("page-width");
         if (width) root?.setAttribute("data-width", width);
         const textSize = { xs: 14, s: 15, m: 16, xl: 19 }[
