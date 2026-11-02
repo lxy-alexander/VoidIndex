@@ -77,7 +77,9 @@ let uploaded = 0;
 for (const note of process.argv.slice(2)) {
   const notePath = resolve(note);
   const noteDir = dirname(notePath);
-  const slug = basename(notePath).replace(/\.mdx?$/, "");
+  const slug = basename(notePath)
+    .replace(/\.mdx?$/, "")
+    .replace(/[^\w.-]+/g, "-");
   const text = readFileSync(notePath, "utf8");
   const rootUrl = text.match(/^typora-root-url:\s*(.+)$/m)?.[1].trim();
   const done = new Map();
@@ -110,4 +112,4 @@ for (const note of process.argv.slice(2)) {
     .replace(HTML_IMAGE, rewrite);
   if (next !== text) writeFileSync(notePath, next);
 }
-console.log(`${uploaded} image(s) uploaded`);
+if (uploaded) console.log(`${uploaded} image(s) uploaded`);

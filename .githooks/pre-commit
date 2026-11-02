@@ -1,0 +1,15 @@
+#!/bin/sh
+# On any machine, before a note is committed: move the images it links to on
+# disk into R2 (img.voidindex.net), rewrite its links and re-stage it, so
+# images never enter git. Needs `pnpm exec wrangler login` once per machine,
+# but only when a note actually has local images.
+git diff --cached --name-only --diff-filter=ACM -z -- \
+  'src/content/posts/*.md' 'src/content/posts/*.mdx' |
+  xargs -0 sh -c '
+    [ $# -eq 0 ] && exit 0
+    node scripts/upload-images.mjs "$@" || {
+      echo "pre-commit: image upload failed. If wrangler is not logged in on this machine, run: pnpm exec wrangler login" >&2
+      exit 1
+    }
+    git add -- "$@"
+  ' sh
