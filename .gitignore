@@ -31,3 +31,12 @@ public/pagefind
 
 # docker compose
 compose.override.yaml
+
+# note images live in R2 (scripts/upload-images.mjs), not in git
+src/content/posts/**/*.png
+src/content/posts/**/*.jpg
+src/content/posts/**/*.jpeg
+src/content/posts/**/*.gif
+src/content/posts/**/*.webp
+src/content/posts/**/*.avif
+src/content/posts/**/*.svg

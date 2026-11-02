@@ -43,6 +43,11 @@ if grep -q '^draft: *true' "$NOTE"; then
   exit 0
 fi
 
+# Local images go to R2 (img.voidindex.net) and the note's links are rewritten,
+# so only text is committed.
+node scripts/upload-images.mjs "$NOTE" >>"$LOG" 2>&1 ||
+  fail "Image upload failed (see $LOG)"
+
 git add -- "$REL" >>"$LOG" 2>&1 || fail "git add failed"
 if git diff --cached --quiet -- "$REL"; then
   notify "Nothing to publish" "$TITLE has no new changes"
