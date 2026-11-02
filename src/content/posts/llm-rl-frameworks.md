@@ -1,6 +1,6 @@
 ---
-title: "Open-Source RL Frameworks for LLMs: verl, OpenRLHF, TRL, NeMo RL,	ROLL,	slime, AReaL"
-description: A side-by-side comparison of the popular LLM RL training frameworks — verl, OpenRLHF, TRL, NeMo RL, ROLL, slime, AReaL — and a deep dive into verl's system design.
+title: "开源 LLM 强化学习框架：verl、OpenRLHF、TRL、NeMo RL、ROLL、slime、AReaL"
+description: 横向对比主流 LLM 强化学习训练框架 verl、OpenRLHF、TRL、NeMo RL、ROLL、slime、AReaL，并深入讲解 verl 的系统设计。
 pubDatetime: 2026-10-29T12:00:00Z
 tags:
   - rl
@@ -8,350 +8,349 @@ tags:
 draft: false
 ---
 
-Pick TRL to get started, OpenRLHF or verl for a general Ray-based RL stack, slime or NeMo RL for Megatron-scale MoE training, ROLL for agentic RL with heavy resource orchestration, and AReaL for fully asynchronous RL; they all wire a training engine to an inference engine (vLLM/SGLang) and differ mainly in how they schedule GPUs between the two [[1]](https://github.com/verl-project/verl)[[3]](https://arxiv.org/abs/2409.19256).
+入门选 TRL；要一套通用的、基于 Ray 的 RL 框架选 OpenRLHF 或 verl；要在 Megatron 规模上训练 MoE 选 slime 或 NeMo RL；做资源编排复杂的 agentic RL 选 ROLL；做完全异步的 RL 选 AReaL。它们都是把训练引擎和推理引擎（vLLM/SGLang）接在一起，主要区别在于两者之间怎么调度 GPU [[1]](https://github.com/verl-project/verl)[[3]](https://arxiv.org/abs/2409.19256)。
 
-## At a glance
+## 一览
 
 | | verl | OpenRLHF | TRL | NeMo RL | ROLL | slime | AReaL |
 |---|---|---|---|---|---|---|---|
-| From | ByteDance Seed → community | OpenRLHF community | Hugging Face | NVIDIA | Alibaba | Zhipu AI / THUDM | Ant Group + Tsinghua |
-| Core idea | HybridFlow dataflow | Ray + vLLM, simple and scalable | Trainer API on Transformers | Ray, Megatron/DTensor | Multi-role resource orchestration | Data buffer between SGLang and Megatron | Fully async rollout service |
-| Training backend | FSDP / FSDP2 / Megatron | DeepSpeed | Accelerate (DeepSpeed / FSDP) | DTensor (FSDP2) / Megatron | FSDP2 / Megatron | Megatron | Pluggable |
-| Rollout backend | vLLM / SGLang / HF | vLLM | vLLM | vLLM | vLLM / SGLang | SGLang | Separate inference service |
-| Sync / Async | Both | Both | Mostly sync | Both | Both | Both | Fully async |
-| Scale sweet spot | Small → very large MoE | Small → 70B class | Single node → small clusters | Large clusters | Large clusters, agents | Very large MoE | Large async training |
-| Best for | General research + production | Readable PPO/GRPO stack | Learning, quick experiments | NVIDIA-stack teams | Agentic RL | Megatron-scale RL | Async RL research |
+| 来自 | 字节 Seed → 社区 | OpenRLHF 社区 | Hugging Face | NVIDIA | 阿里巴巴 | 智谱 AI / THUDM | 蚂蚁集团 + 清华 |
+| 核心思路 | HybridFlow 数据流 | Ray + vLLM，简单、易扩展 | 基于 Transformers 的 Trainer API | Ray，Megatron/DTensor | 多角色资源编排 | SGLang 和 Megatron 之间的数据缓冲区 | 完全异步的 rollout 服务 |
+| 训练后端 | FSDP / FSDP2 / Megatron | DeepSpeed | Accelerate（DeepSpeed / FSDP） | DTensor（FSDP2）/ Megatron | FSDP2 / Megatron | Megatron | 可插拔 |
+| Rollout 后端 | vLLM / SGLang / HF | vLLM | vLLM | vLLM | vLLM / SGLang | SGLang | 独立的推理服务 |
+| 同步 / 异步 | 都支持 | 都支持 | 以同步为主 | 都支持 | 都支持 | 都支持 | 完全异步 |
+| 最适合的规模 | 小规模 → 超大 MoE | 小规模 → 70B 级 | 单机 → 小集群 | 大集群 | 大集群、agent | 超大 MoE | 大规模异步训练 |
+| 最适合 | 通用研究 + 生产 | 易读的 PPO/GRPO 实现 | 学习、快速实验 | 用 NVIDIA 技术栈的团队 | Agentic RL | Megatron 规模的 RL | 异步 RL 研究 |
 
-Exact feature sets move fast; check each repo's latest docs before choosing [[5]](https://github.com/OpenRLHF/OpenRLHF)[[6]](https://github.com/huggingface/trl)[[7]](https://github.com/NVIDIA-NeMo/RL)[[8]](https://github.com/alibaba/ROLL)[[9]](https://github.com/THUDM/slime)[[10]](https://github.com/inclusionAI/AReaL).
+各家功能变化很快，选型前请看各仓库最新的文档 [[5]](https://github.com/OpenRLHF/OpenRLHF)[[6]](https://github.com/huggingface/trl)[[7]](https://github.com/NVIDIA-NeMo/RL)[[8]](https://github.com/alibaba/ROLL)[[9]](https://github.com/THUDM/slime)[[10]](https://github.com/inclusionAI/AReaL)。
 
-## Shared problem
+## 共同的问题
 
 ```mermaid
 flowchart LR
-  P["Prompts"] --> G["Rollout: generate (vLLM / SGLang)"]
-  G --> R["Reward: rules / model / environment"]
-  R --> A["Advantage: GRPO / PPO"]
-  A --> T["Train: FSDP / Megatron / DeepSpeed"]
-  T -. "sync new weights" .-> G
+  P["Prompt"] --> G["Rollout：生成（vLLM / SGLang）"]
+  G --> R["Reward：规则 / 模型 / 环境"]
+  R --> A["Advantage：GRPO / PPO"]
+  A --> T["训练：FSDP / Megatron / DeepSpeed"]
+  T -. "同步新权重" .-> G
 ```
 
-- **Generation is the bottleneck**: most of an RL step is spent generating, so every framework borrows a fast inference engine.
-- **Two layouts for one model**: training shards weights for memory; generation wants tensor-parallel weights plus a KV cache. Switching between them costs time.
-- **GPU scheduling**: either training and generation take turns on the same GPUs (colocate) or run on separate GPUs at the same time (disaggregate).
+- **生成是瓶颈**：一个 RL step 的大部分时间花在生成上，所以每个框架都借用一个快速的推理引擎。
+- **同一个模型，两种布局**：训练为了省显存会切分权重；生成需要张量并行的权重加 KV cache。两者之间切换要花时间。
+- **GPU 调度**：训练和生成要么在同一批 GPU 上轮流跑（colocate），要么在不同的 GPU 上同时跑（分离部署）。
 
-## Frameworks
+## 各框架
 
 ### verl
 
-**What it is**: ByteDance Seed's framework, now run by the verl community, and the open-source code behind the HybridFlow paper [[3]](https://arxiv.org/abs/2409.19256). The most widely used general-purpose LLM RL framework.
+**是什么**：字节 Seed 的框架，现在由 verl 社区维护，也是 HybridFlow 论文的开源实现 [[3]](https://arxiv.org/abs/2409.19256)。使用最广的通用 LLM RL 框架。
 
-**Architecture**
+**架构**
 
 ```mermaid
 flowchart TB
-  C["Single controller: RL loop in one Python process"]
-  subgraph POOL["Resource pool (shared GPUs)"]
+  C["单控制器：RL 循环在一个 Python 进程里"]
+  subgraph POOL["资源池（共享 GPU）"]
     direction LR
-    R["Rollout workers: vLLM / SGLang"]
-    A["Actor workers: FSDP / Megatron"]
-    REF["Reference + critic workers"]
+    R["Rollout worker：vLLM / SGLang"]
+    A["Actor worker：FSDP / Megatron"]
+    REF["Reference + critic worker"]
   end
-  RW["Reward: rules / model"]
-  C -- "1 generate" --> R
-  C -- "2 score" --> RW
-  C -- "3 log-probs, values" --> REF
-  C -- "4 update" --> A
-  A -. "3D-HybridEngine: reshard weights" .-> R
+  RW["Reward：规则 / 模型"]
+  C -- "1 生成" --> R
+  C -- "2 打分" --> RW
+  C -- "3 log-prob、value" --> REF
+  C -- "4 更新" --> A
+  A -. "3D-HybridEngine：重切权重" .-> R
 ```
 
-**The key part: one brain, many hands (HybridFlow)**
+**关键：一个大脑，很多双手（HybridFlow）**
 
-- **Single controller**: the whole RL algorithm is a short loop — generate → score → compute advantage → update. It reads like ordinary Python, so changing PPO to GRPO only touches this loop.
-- **Worker groups**: each role is a group of GPU processes running the same program (SPMD). When the controller calls a role, verl splits the batch across that group's GPUs and gathers the results.
-- **3D-HybridEngine**: actor and rollout share the same GPUs. After training, the same weights are re-cut from the training layout (FSDP/Megatron shards) into the inference layout (vLLM/SGLang tensor parallel) without keeping a second copy. Optimizer state is freed during generation so the KV cache has room.
+- **单控制器**：整个 RL 算法就是一个很短的循环：生成 → 打分 → 算 advantage → 更新。读起来就像普通 Python，所以把 PPO 改成 GRPO 只需要动这个循环。
+- **Worker 组**：每个角色是一组运行同一程序的 GPU 进程（SPMD）。控制器调用某个角色时，verl 把 batch 切到这一组的 GPU 上，再把结果收回来。
+- **3D-HybridEngine**：actor 和 rollout 共用同一批 GPU。训练完成后，同一份权重从训练布局（FSDP/Megatron 分片）重新切成推理布局（vLLM/SGLang 张量并行），不保留第二份副本。生成期间释放优化器状态，给 KV cache 腾出空间。
 
-**Strengths**: the widest algorithm list (PPO, GRPO, GSPO, DAPO, REINFORCE++, RLOO, Dr. GRPO); runs from one node to very large MoE; sync, colocate-async, and separate-async modes [[2]](https://verl.readthedocs.io/en/latest/).
+**优势**：算法最全（PPO、GRPO、GSPO、DAPO、REINFORCE++、RLOO、Dr. GRPO）；从单机到超大 MoE 都能跑；支持同步、colocate 异步、分离异步三种模式 [[2]](https://verl.readthedocs.io/en/latest/)。
 
-**Watch out**: many config knobs; the async trainer and Omni/VLA support live in experimental modules.
+**注意**：配置项很多；异步 trainer 和 Omni/VLA 支持还在实验模块里。
 
-**Use it when**: you want one framework for both research and production-scale runs.
+**适合**：想用一个框架同时做研究和生产规模训练。
 
 ### OpenRLHF
 
-**What it is**: a community framework built on Ray, DeepSpeed, and vLLM, designed to be easy to read and easy to scale [[5]](https://github.com/OpenRLHF/OpenRLHF).
+**是什么**：基于 Ray、DeepSpeed 和 vLLM 的社区框架，设计目标是易读、易扩展 [[5]](https://github.com/OpenRLHF/OpenRLHF)。
 
-**Architecture**
+**架构**
 
 ```mermaid
 flowchart LR
-  subgraph RAY["Ray cluster"]
+  subgraph RAY["Ray 集群"]
     direction TB
-    V["vLLM engines: generate"]
-    ACT["Actor: DeepSpeed ZeRO-3"]
-    CRI["Critic: DeepSpeed"]
+    V["vLLM engine：生成"]
+    ACT["Actor：DeepSpeed ZeRO-3"]
+    CRI["Critic：DeepSpeed"]
     RM["Reward model"]
     REF["Reference model"]
   end
-  V -- "samples" --> RM
-  V -- "samples" --> REF
-  V -- "samples" --> CRI
+  V -- "样本" --> RM
+  V -- "样本" --> REF
+  V -- "样本" --> CRI
   RM --> ACT
   REF --> ACT
   CRI --> ACT
-  ACT -- "broadcast new weights" --> V
+  ACT -- "广播新权重" --> V
 ```
 
-**The key part: four models, placed by Ray**
+**关键：四个模型，由 Ray 安排位置**
 
-- PPO-style RLHF needs four models: **actor** (the policy), **critic** (value estimate), **reward model**, and **reference** (to keep the policy close to where it started).
-- **Ray** puts each model on its own GPUs or packs several together, so 70B-class models fit by spreading roles across nodes.
-- **vLLM** does generation; after each update the actor **broadcasts weights** to the vLLM engines (NCCL), so rollouts use the new policy.
-- **Hybrid engine** mode colocates everything on the same GPUs and sleeps vLLM during training to free memory.
+- PPO 式的 RLHF 需要四个模型：**actor**（策略）、**critic**（价值估计）、**reward model**，以及 **reference**（让策略不要偏离起点太远）。
+- **Ray** 可以把每个模型放在独立的 GPU 上，也可以把几个模型放在一起，所以 70B 级的模型可以把各个角色分散到多个节点上装下。
+- **vLLM** 负责生成；每次更新后，actor 通过 NCCL 把**权重广播**给 vLLM engine，让 rollout 用上新策略。
+- **Hybrid engine** 模式把所有模型放在同一批 GPU 上，训练时让 vLLM 进入 sleep 释放显存。
 
-**Strengths**: one repo for SFT, reward model, DPO, and RL (PPO, REINFORCE++, GRPO, RLOO); compact code that many research forks build on; sample packing and LoRA.
+**优势**：一个仓库覆盖 SFT、reward model、DPO 和 RL（PPO、REINFORCE++、GRPO、RLOO）；代码紧凑，很多研究分支都基于它；支持样本打包和 LoRA。
 
-**Watch out**: built on DeepSpeed, so Megatron-style tensor/pipeline parallelism for giant MoE models isn't its focus.
+**注意**：基于 DeepSpeed，所以面向超大 MoE 的 Megatron 式张量/流水线并行不是它的重点。
 
-**Use it when**: you want a readable PPO/GRPO stack for models up to about 70B and expect to modify the code.
+**适合**：想要一套易读的 PPO/GRPO 实现，模型在 70B 左右以内，并且打算改代码。
 
 ### TRL
 
-**What it is**: Hugging Face's post-training library on top of Transformers, Accelerate, and PEFT [[6]](https://github.com/huggingface/trl).
+**是什么**：Hugging Face 的后训练库，构建在 Transformers、Accelerate 和 PEFT 之上 [[6]](https://github.com/huggingface/trl)。
 
-**Architecture**
+**架构**
 
 ```mermaid
 flowchart TB
-  U["Your script: GRPOTrainer(model, reward_funcs, dataset)"]
-  U --> T["Trainer loop (Transformers Trainer)"]
-  T --> ACC["Accelerate: DeepSpeed / FSDP / DDP"]
-  T -- "generate" --> G{"vLLM mode"}
-  G -- "server" --> S["trl vllm-serve on separate GPUs"]
-  G -- "colocate" --> CO["vLLM inside training process"]
-  T --> P["PEFT / LoRA (optional)"]
+  U["你的脚本：GRPOTrainer(model, reward_funcs, dataset)"]
+  U --> T["Trainer 循环（Transformers Trainer）"]
+  T --> ACC["Accelerate：DeepSpeed / FSDP / DDP"]
+  T -- "生成" --> G{"vLLM 模式"}
+  G -- "server" --> S["trl vllm-serve 跑在独立 GPU 上"]
+  G -- "colocate" --> CO["vLLM 在训练进程内"]
+  T --> P["PEFT / LoRA（可选）"]
 ```
 
-**The key part: a Trainer per method**
+**关键：每种方法一个 Trainer**
 
-- Every method is a **Trainer class** — `SFTTrainer`, `DPOTrainer`, `GRPOTrainer`, `RLOOTrainer`, `RewardTrainer`. You pass a model, a dataset, and (for GRPO) reward functions; the trainer runs the whole loop.
-- Scaling comes from **Accelerate**, the same layer that runs normal Hugging Face fine-tuning, so DeepSpeed or FSDP configs carry over.
-- Generation is the slow part, so TRL uses **vLLM** in one of two modes: **server** (a separate `trl vllm-serve` process on its own GPUs, weights pushed each step) or **colocate** (vLLM in the same process, sharing GPUs).
+- 每种方法都是一个 **Trainer 类**：`SFTTrainer`、`DPOTrainer`、`GRPOTrainer`、`RLOOTrainer`、`RewardTrainer`。传入模型、数据集，以及（GRPO 需要的）reward 函数，trainer 就会跑完整个循环。
+- 扩展靠 **Accelerate**，也就是普通 Hugging Face 微调用的那一层，所以 DeepSpeed 或 FSDP 的配置可以直接沿用。
+- 生成是慢的部分，所以 TRL 用 **vLLM**，有两种模式：**server**（独立的 `trl vllm-serve` 进程跑在自己的 GPU 上，每步推送权重）或 **colocate**（vLLM 在同一个进程里，共用 GPU）。
 
-**Strengths**: lowest barrier to entry; works with any Hugging Face model; LoRA via PEFT; CLI (`trl sft`, `trl dpo`); excellent docs; adds new methods from papers quickly.
+**优势**：门槛最低；支持任何 Hugging Face 模型；通过 PEFT 支持 LoRA；有命令行（`trl sft`、`trl dpo`）；文档很好；新论文的方法加得很快。
 
-**Watch out**: a single Trainer loop is simpler than a Ray dataflow, so large multi-node RL with separate rollout clusters is harder to tune.
+**注意**：单个 Trainer 循环比 Ray 数据流简单，所以 rollout 集群分离的大规模多节点 RL 更难调。
 
-**Use it when**: learning, quick experiments, or single-node / small-cluster runs.
+**适合**：学习、快速实验，或单机 / 小集群训练。
 
 ### NeMo RL
 
-**What it is**: NVIDIA's open-source RL library in the NeMo family [[7]](https://github.com/NVIDIA-NeMo/RL).
+**是什么**：NVIDIA NeMo 家族里的开源 RL 库 [[7]](https://github.com/NVIDIA-NeMo/RL)。
 
-**Architecture**
+**架构**
 
 ```mermaid
 flowchart TB
-  C["Controller: GRPO / DPO / SFT algorithm"]
-  C --> E["Environments: math, code, multi-turn games, tools"]
-  C --> GEN["Generation workers: vLLM"]
-  C --> POL["Policy workers"]
-  POL --> B{"Training backend"}
-  B --> DT["DTensor: FSDP2 + TP"]
-  B --> MG["Megatron-Core: TP / PP / CP / EP"]
-  POL -. "weight refit" .-> GEN
-  RAY["Ray: placement + workers"] -.- C
+  C["控制器：GRPO / DPO / SFT 算法"]
+  C --> E["环境：数学、代码、多轮游戏、工具"]
+  C --> GEN["生成 worker：vLLM"]
+  C --> POL["Policy worker"]
+  POL --> B{"训练后端"}
+  B --> DT["DTensor：FSDP2 + TP"]
+  B --> MG["Megatron-Core：TP / PP / CP / EP"]
+  POL -. "权重 refit" .-> GEN
+  RAY["Ray：放置 + worker"] -.- C
 ```
 
-**The key part: two training backends behind one interface**
+**关键：一个接口，两种训练后端**
 
-- The algorithm code talks to an abstract **policy worker**. Underneath, you pick **DTensor** (PyTorch-native FSDP2 + tensor parallel, quick to start, works with Hugging Face checkpoints) or **Megatron-Core** (full TP/PP/context/expert parallel for the largest models).
-- **Environments** are first-class: a math verifier, a code sandbox, or a multi-turn game all plug in the same way, which makes agent training straightforward.
-- After each step, weights are **refit** from the training layout into vLLM.
+- 算法代码只和抽象的 **policy worker** 打交道。底下可以选 **DTensor**（PyTorch 原生的 FSDP2 + 张量并行，上手快，兼容 Hugging Face checkpoint）或 **Megatron-Core**（完整的 TP/PP/上下文并行/专家并行，用于最大的模型）。
+- **环境**是一等公民：数学验证器、代码沙箱、多轮游戏都用同一种方式接入，做 agent 训练很直接。
+- 每一步之后，权重从训练布局 **refit** 到 vLLM。
 
-**Strengths**: SFT, DPO, reward models, and GRPO in one library; tuned for NVIDIA hardware; scales to large clusters with Megatron.
+**优势**：一个库里有 SFT、DPO、reward model 和 GRPO；针对 NVIDIA 硬件调优；用 Megatron 可以扩展到大集群。
 
-**Watch out**: younger and smaller community than verl or OpenRLHF; fits best if you already use NeMo/Megatron.
+**注意**：比 verl 和 OpenRLHF 年轻，社区也更小；如果你已经在用 NeMo/Megatron，最合适。
 
-**Use it when**: your team trains on the NVIDIA stack and wants Megatron-scale RL with vendor support.
+**适合**：团队用 NVIDIA 技术栈训练，想要有厂商支持的 Megatron 规模 RL。
 
 ### ROLL
 
-**What it is**: Alibaba's RL framework for large-scale and agentic training [[8]](https://github.com/alibaba/ROLL).
+**是什么**：阿里巴巴面向大规模和 agentic 训练的 RL 框架 [[8]](https://github.com/alibaba/ROLL)。
 
-**Architecture**
+**架构**
 
 ```mermaid
 flowchart TB
-  PL["Pipeline: RLVR / Agentic / DPO"]
-  PL --> SCH["Rollout scheduler: per-sample control"]
-  SCH --> ENV["Environment workers"]
-  SCH --> INF["Actor-infer: vLLM / SGLang strategy"]
-  PL --> TR["Actor-train: Megatron / FSDP2 strategy"]
-  PL --> RW["Reward workers: math, code, LLM judge"]
-  ADM["AutoDeviceMapping"] -. "assigns GPUs to each role" .-> INF
+  PL["Pipeline：RLVR / Agentic / DPO"]
+  PL --> SCH["Rollout 调度器：逐样本控制"]
+  SCH --> ENV["环境 worker"]
+  SCH --> INF["Actor-infer：vLLM / SGLang strategy"]
+  PL --> TR["Actor-train：Megatron / FSDP2 strategy"]
+  PL --> RW["Reward worker：数学、代码、LLM 评判"]
+  ADM["AutoDeviceMapping"] -. "给每个角色分配 GPU" .-> INF
   ADM -.-> TR
   ADM -.-> RW
-  TR -. "sync weights" .-> INF
+  TR -. "同步权重" .-> INF
 ```
 
-**The key part: roles + strategies + AutoDeviceMapping**
+**关键：角色 + strategy + AutoDeviceMapping**
 
-- Every model is a **role** (actor-train, actor-infer, reference, critic, reward, environment). Each role picks a **strategy** — the backend that runs it (Megatron, FSDP2, vLLM, SGLang).
-- **AutoDeviceMapping** reads a config that says which GPUs each role gets, so the same pipeline can run colocated on 8 GPUs or spread over hundreds without code changes.
-- The **rollout scheduler** works per sample, not per batch: it can stop, retry, or route single samples to different reward workers (math checker, code sandbox, LLM judge), so slow or failed samples don't stall everyone.
+- 每个模型是一个**角色**（actor-train、actor-infer、reference、critic、reward、environment）。每个角色选一个 **strategy**，也就是运行它的后端（Megatron、FSDP2、vLLM、SGLang）。
+- **AutoDeviceMapping** 读取一份配置，里面写明每个角色用哪些 GPU，所以同一条 pipeline 不改代码，就能在 8 张 GPU 上 colocate 运行，也能分散到几百张 GPU 上。
+- **Rollout 调度器**按样本工作，而不是按 batch：它可以停止、重试单个样本，或把单个样本路由到不同的 reward worker（数学检查器、代码沙箱、LLM 评判），所以慢的或失败的样本不会拖住所有人。
 
-**Strengths**: ready pipelines for multi-domain RLVR and agentic RL; fine-grained GPU placement; async options for throughput.
+**优势**：有现成的多领域 RLVR 和 agentic RL pipeline；GPU 放置粒度细；有异步选项提升吞吐。
 
-**Watch out**: smaller English-language community; the role/strategy config takes time to learn.
+**注意**：英文社区较小；角色/strategy 的配置需要时间学习。
 
-**Use it when**: you need agentic RL or precise control over where each role runs on a large cluster.
+**适合**：需要做 agentic RL，或者要在大集群上精确控制每个角色跑在哪里。
 
 ### slime
 
-**What it is**: the RL framework from Zhipu AI and Tsinghua (THUDM), used to post-train the GLM-4.5 series [[9]](https://github.com/THUDM/slime).
+**是什么**：智谱 AI 和清华（THUDM）的 RL 框架，用于 GLM-4.5 系列的后训练 [[9]](https://github.com/THUDM/slime)。
 
-**Architecture**
+**架构**
 
 ```mermaid
 flowchart LR
-  subgraph TRAIN["Training: Megatron"]
-    M["Actor (TP / PP / EP)"]
+  subgraph TRAIN["训练：Megatron"]
+    M["Actor（TP / PP / EP）"]
   end
-  subgraph BUF["Data buffer"]
-    D["Prompts + finished rollouts"]
+  subgraph BUF["数据缓冲区"]
+    D["Prompt + 完成的 rollout"]
   end
-  subgraph ROLL["Rollout: SGLang"]
-    S["SGLang servers + router"]
-    F["Custom rollout function"]
+  subgraph ROLL["Rollout：SGLang"]
+    S["SGLang server + router"]
+    F["自定义 rollout 函数"]
   end
-  D -- "prompts" --> F
+  D -- "prompt" --> F
   F --> S
-  S -- "samples + rewards" --> D
-  D -- "training batch" --> M
-  M -- "update weights" --> S
+  S -- "样本 + reward" --> D
+  D -- "训练 batch" --> M
+  M -- "更新权重" --> S
 ```
 
-**The key part: a data buffer between Megatron and SGLang**
+**关键：Megatron 和 SGLang 之间的数据缓冲区**
 
-- Only two engines: **Megatron** trains, **SGLang** generates, joined by Ray. No backend matrix to maintain.
-- The **data buffer** is the meeting point: it feeds prompts to rollout and hands finished samples to training. Because the two sides only talk through the buffer, they can run in lockstep (colocated, sync) or independently (separate GPUs, async).
-- Rollout logic is a **plain Python function** you can replace — multi-turn agents, tool calls, or custom sampling go there, calling SGLang's server API.
+- 只有两个引擎：**Megatron** 负责训练，**SGLang** 负责生成，用 Ray 连起来。不用维护一堆后端组合。
+- **数据缓冲区**是两边的交汇点：它把 prompt 交给 rollout，把完成的样本交给训练。两边只通过缓冲区通信，所以既可以步调一致（colocate、同步），也可以各跑各的（分开的 GPU、异步）。
+- Rollout 逻辑是一个可以替换的**普通 Python 函数**：多轮 agent、工具调用、自定义采样都写在这里，调用 SGLang 的 server API。
 
-**Strengths**: small, hackable codebase; proven on very large MoE with Megatron's full parallelism; native SGLang server features.
+**优势**：代码小，容易改；在超大 MoE 上用 Megatron 的完整并行验证过；直接用上 SGLang server 的功能。
 
-**Watch out**: Megatron-only training means checkpoint conversion and parallel configs — more setup than FSDP tools.
+**注意**：训练只支持 Megatron，意味着要做 checkpoint 转换和并行配置，比 FSDP 类工具准备工作多。
 
-**Use it when**: you train very large MoE models with Megatron and want a lean RL loop.
+**适合**：用 Megatron 训练超大 MoE 模型，想要一个精简的 RL 循环。
 
 ### AReaL
 
-**What it is**: a fully asynchronous RL system from Ant Group and Tsinghua IIIS [[10]](https://github.com/inclusionAI/AReaL).
+**是什么**：蚂蚁集团和清华 IIIS 的完全异步 RL 系统 [[10]](https://github.com/inclusionAI/AReaL)。
 
-**Architecture**
+**架构**
 
 ```mermaid
 flowchart LR
-  subgraph GEN["Rollout workers (never stop)"]
-    G["Generate"]
+  subgraph GEN["Rollout worker（从不停止）"]
+    G["生成"]
   end
-  subgraph TRN["Trainer workers"]
-    T["Decoupled PPO update"]
+  subgraph TRN["Trainer worker"]
+    T["解耦的 PPO 更新"]
   end
-  G -- "finished samples + policy version" --> Q["Sample queue with staleness filter"]
+  G -- "完成的样本 + 策略版本" --> Q["带过时过滤的样本队列"]
   Q --> T
-  T -- "new weights, loaded mid-generation" --> G
-  RW["Reward service"] --> Q
+  T -- "新权重，生成中途加载" --> G
+  RW["Reward 服务"] --> Q
   G --> RW
 ```
 
-**The key part: generation never waits**
+**关键：生成从不等待**
 
-- **Async by design**: rollout GPUs generate nonstop; trainers update as soon as a batch is ready. No GPU waits for the slowest answer.
-- **Interruptible rollout**: when new weights arrive, rollout workers load them mid-generation and keep going, so a long answer may be finished by a newer policy.
-- **Staleness limit**: each sample carries the policy version that made it; samples too many versions old are dropped.
-- **Decoupled PPO objective**: separates the policy that generated a sample from the one used for the trust-region check, so slightly stale data still trains stably. The paper reports up to about 2.8× faster training than synchronous systems [[11]](https://arxiv.org/abs/2505.24298).
+- **天生异步**：rollout GPU 不停地生成；trainer 一有 batch 就立刻更新。没有 GPU 需要等最慢的那个回答。
+- **可中断的 rollout**：新权重到达时，rollout worker 在生成中途加载并继续，所以一个长回答可能由更新后的策略写完。
+- **过时上限**：每个样本带着生成它的策略版本号；落后太多版本的样本会被丢弃。
+- **解耦的 PPO 目标**：把生成样本的策略和做信任域检查的策略分开，所以略微过时的数据也能稳定训练。论文报告训练速度比同步系统最多快约 2.8 倍 [[11]](https://arxiv.org/abs/2505.24298)。
 
-**Strengths**: highest GPU use when answer lengths vary a lot (long reasoning, agents); AReaL-lite offers a small algorithm-first API.
+**优势**：回答长度差异很大时（长推理、agent），GPU 利用率最高；AReaL-lite 提供一个以算法为先的精简 API。
 
-**Watch out**: async RL is harder to debug and tune; loose staleness limits can hurt stability.
+**注意**：异步 RL 更难调试和调参；过时上限放得太宽会影响稳定性。
 
-**Use it when**: generation time dominates your RL steps and you want fully async training.
+**适合**：生成时间在 RL step 里占大头，想做完全异步的训练。
 
-## Key optimizations
+## 关键优化
 
-These ideas show up across all the frameworks. Each gets one line to remember, then what it actually does.
+这些思路在各个框架里反复出现。每个先给一句好记的话，再说它实际做什么。
 
-### Async rollout
+### 异步 rollout
 
-*don't wait for the slowest one*
+*不等最慢的那个*
 
-In sync RL, a batch finishes only when its longest answer finishes; the other GPUs sit idle. Async rollout lets finished samples move on to reward and training while long ones keep generating.
+同步 RL 里，一个 batch 要等最长的回答完成才算结束，其他 GPU 只能干等。异步 rollout 让已完成的样本先去算 reward 和训练，长的样本继续生成。
 
-### Partial rollout
+### 部分 rollout
 
-*cut the long tail, finish it next round*
+*截断长尾，下一轮接着写*
 
-Very long generations are stopped at a budget, saved, and resumed in the next step instead of blocking this one. A little less freshness for much less waiting.
+特别长的生成到预算上限就停下、保存，下一步再接着生成，而不是卡住这一步。少一点新鲜度，换来少得多的等待。
 
-### Rollout server
+### Rollout 服务
 
-*rollout as a service*
+*把 rollout 做成服务*
 
-The inference engine runs as a server and the trainer calls it like an API. This fits multi-turn agents and tool calls, where one sample needs many back-and-forth generations.
+推理引擎作为 server 运行，trainer 像调 API 一样调用它。这适合多轮 agent 和工具调用，因为一个样本需要来回生成很多次。
 
-### Colocate vs Separate
+### Colocate 与分离部署
 
-*share the desk or get two desks*
+*共用一张桌子，还是各用一张*
 
-- **Colocate**: training and generation take turns on the same GPUs. No extra hardware, but they can't run at the same time.
-- **Separate**: dedicated generation GPUs and training GPUs run in parallel. More throughput, but weights must be shipped across and data is slightly stale.
+- **Colocate**：训练和生成在同一批 GPU 上轮流跑。不需要额外硬件，但两者不能同时进行。
+- **分离部署**：专门的生成 GPU 和训练 GPU 并行运行。吞吐更高，但权重要传过去，数据也会稍微过时。
 
-### GPU placement
+### GPU 放置
 
-*seat assignment for roles*
+*给各个角色排座位*
 
-A resource pool is a named set of GPUs. Placement decides which role (actor, critic, reference, reward) sits on which pool, and which roles share GPUs.
+资源池是一组有名字的 GPU。放置决定哪个角色（actor、critic、reference、reward）坐在哪个池上，以及哪些角色共用 GPU。
 
-### Resharding
+### 重新切分
 
-*same weights, change clothes*
+*同一份权重，换身衣服*
 
-The weights stay the same; only how they are cut across GPUs changes between training and generation. Doing it in place avoids a second full copy and shortens the switch.
+权重本身不变，变的只是训练和生成时它在 GPU 之间的切法。原地完成可以避免第二份完整副本，也缩短切换时间。
 
-### Weight sync
+### 权重同步
 
-*send the new playbook to the players*
+*把新战术发给队员*
 
-After each update, new weights go to the rollout engine, converted between formats (e.g. Megatron → vLLM). Faster sync means fresher rollouts and shorter pauses.
+每次更新后，新权重发送到 rollout 引擎，中间做格式转换（比如 Megatron → vLLM）。同步越快，rollout 越新，停顿越短。
 
-### Model parallelism
+### 模型并行
 
-*split big models so they fit*
+*把大模型切开才装得下*
 
-FSDP2 shards parameters, gradients, and optimizer state; Megatron adds tensor and pipeline parallelism; expert parallelism spreads MoE experts across GPUs.
+FSDP2 切分参数、梯度和优化器状态；Megatron 加上张量并行和流水线并行；专家并行把 MoE 的 expert 分散到各 GPU 上。
 
-### Memory savers
+### 省显存
 
-*save memory three ways*
+*三种省显存的办法*
 
-- **Offloading**: move parameters or optimizer state to CPU when not in use.
-- **Sequence packing**: put several short samples into one sequence so padding doesn't waste compute.
-- **LoRA**: train small adapter matrices instead of all weights.
+- **Offload**：参数或优化器状态不用时挪到 CPU。
+- **序列打包**：把几条短样本拼成一条序列，不让 padding 浪费计算。
+- **LoRA**：只训练小的 adapter 矩阵，而不是全部权重。
 
-### Staleness control
+### 过时控制
 
-*a conveyor belt with an expiry date*
+*带保质期的传送带*
 
-Samples ride a queue from rollout to trainer. A staleness limit caps how many policy versions old a sample may be; older ones are dropped or down-weighted.
+样本沿着队列从 rollout 送到 trainer。过时上限规定样本最多可以落后几个策略版本；更旧的样本会被丢弃或降权。
 
-### Engine features
+### 引擎功能
 
-*borrow, don't rebuild*
+*借用，不重造*
 
-CUDA Graphs, KV cache management, and continuous batching come from vLLM/SGLang; the RL framework reuses them.
+CUDA Graph、KV cache 管理和 continuous batching 都来自 vLLM/SGLang，RL 框架直接复用。
 
-
-## References
+## 参考资料
 
 1. [verl on GitHub](https://github.com/verl-project/verl)
 2. [verl documentation](https://verl.readthedocs.io/en/latest/)
