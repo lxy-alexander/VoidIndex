@@ -217,6 +217,163 @@ vllm serve ./Qwen3-8B-W4A16-G128
 - **8 位：几乎无损。4 位：略有损失。** FP8 −0.6，INT4 −1.3。GSM8K 的标准误约 ±0.9。
 - **GPU 决定上限。** `fp8_per_channel` 在 A5000 上报错：它需要 FP8 激活，即 SM 8.9+。`fp8_per_tensor` 会退回 Marlin W8A16，可以运行。
 
+## vLLM 内部：一个 W4A16 层，从入口到 GEMM
+
+**五个阶段：识别、构建、加载、重排、运行。每个阶段一个钩子。**
+
+我们跟踪上面在 A5000 上运行的 `vllm serve ./Qwen3-8B-W4A16-G128`。所有名字都来自 vLLM main（v0.29 dev）。
+
+| 阶段 | 何时 | 钩子 | 在本例中 |
+|---|---|---|---|
+| 1. 识别 | 配置阶段 | `ModelConfig._verify_quantization` → `get_quant_config` | `quant_method: compressed-tensors` → `CompressedTensorsConfig` |
+| 2. 构建 | 模型 `__init__` | `LinearBase` → `get_quant_method` → `create_weights` | Scheme `CompressedTensorsWNA16`，kernel `MarlinLinearKernel` |
+| 3. 加载 | `load_weights` | 每个参数的 `weight_loader` | INT4 打包进 `int32`，外加 BF16 scale |
+| 4. 重排 | 加载之后 | `process_weights_after_loading` | `gptq_marlin_repack`、`marlin_permute_scales` |
+| 5. 运行 | 每次 forward | `quant_method.apply` | `torch.ops.vllm.marlin_gemm` |
+
+### 架构
+
+**配置侧选方法，worker 侧负责构建、加载、运行。**
+
+```mermaid
+flowchart TD
+  A["vllm serve / LLM()"] --> B["EngineArgs.create_engine_config"]
+  B --> C["ModelConfig：识别 quant_method"]
+  C --> D["VllmConfig：get_quant_config"]
+  D --> E[CompressedTensorsConfig]
+  F["GPUModelRunner.load_model"] --> G["DefaultModelLoader.load_model"]
+  G --> H["Qwen3 各层：LinearBase"]
+  E --> H
+  H --> I["CompressedTensorsWNA16 scheme"]
+  I --> J[MarlinLinearKernel]
+  J --> K["marlin_gemm（CUDA）"]
+```
+
+- **配置侧**只在 engine 进程里跑一次。产出：一个 `QuantizationConfig` 对象，存为 `vllm_config.quant_config`。
+- **Worker 侧**在每个 GPU worker 上运行。每个线性层都去问这个对象：“我该怎么量化？”
+- **三层，三种职责**：
+  - `CompressedTensorsConfig`：哪一层用哪个 scheme。
+  - `CompressedTensorsWNA16`（scheme）：要创建哪些张量。
+  - `MarlinLinearKernel`（kernel）：用什么布局、调哪个 CUDA op。
+
+### 时序
+
+```mermaid
+sequenceDiagram
+  participant U as vllm serve
+  participant MC as ModelConfig
+  participant VC as VllmConfig
+  participant L as ModelLoader
+  participant LB as LinearBase
+  participant S as WNA16 scheme
+  participant K as Marlin kernel
+  U->>MC: create_engine_config
+  MC->>MC: 读 config.json 的 quant_method
+  U->>VC: 构建 VllmConfig
+  VC->>VC: get_quant_config，检查 SM 7.5+
+  L->>LB: 创建模型各层
+  LB->>S: get_quant_method，create_weights
+  S->>K: choose_mp_linear_kernel
+  L->>LB: load_weights（safetensors）
+  L->>S: process_weights_after_loading
+  S->>K: 重排权重和 scale
+  U->>LB: forward(x)
+  LB->>K: apply_weights
+  K-->>LB: BF16 输出
+```
+
+### 阶段 1：识别——看标签，选类
+
+**`config.json` 说它是什么，vLLM 就信，然后再检查 GPU。**
+
+我们 checkpoint 的 `config.json`（节选）：
+
+```json
+"quantization_config": {
+  "quant_method": "compressed-tensors",
+  "format": "pack-quantized",
+  "ignore": ["lm_head"],
+  "config_groups": {
+    "group_0": {
+      "targets": ["Linear"],
+      "weights": {"num_bits": 4, "type": "int", "symmetric": true,
+                  "strategy": "group", "group_size": 128},
+      "input_activations": null
+    }
+  }
+}
+```
+
+- `ModelConfig._verify_quantization` 读取 `quant_method`。它先问各个“覆盖型”方法（GPTQ、AWQ、ModelOpt……）要不要接管这个 checkpoint。都不要，所以保持 `compressed-tensors`。
+- `VllmConfig._get_quantization_config` 调用 `get_quant_config`，通过 `from_config` 把这个 dict 转成 `CompressedTensorsConfig`。
+- **GPU 检查**：配置要求的最低算力 vs. 设备。W4A16 需要 SM 7.5，A5000 是 8.6，通过。
+
+### 阶段 2：构建——每层都问，配置来答
+
+**匹配层、选 scheme、选 kernel、创建空张量。**
+
+- Qwen3 构建 `QKVParallelLinear`、`RowParallelLinear`、`MergedColumnParallelLinear`，它们都是 `LinearBase`。
+- `LinearBase.__init__` 调用 `resolve_quant_method` → `CompressedTensorsConfig.get_quant_method(layer, prefix)`。
+- **匹配**：`get_scheme` 检查 `targets: ["Linear"]` 和 `ignore`。`lm_head` 在 ignore 里，保持 BF16。Embedding 不是 `Linear`，也保持 BF16。
+- **选 scheme**：权重 = 4 位分组，激活 = `null`，格式 = `pack-quantized` → `CompressedTensorsWNA16`。
+- **选 kernel**：`choose_mp_linear_kernel` 按顺序遍历 CUDA 列表，第一个满足条件的胜出。
+
+  | Kernel | 最低 SM | 在 A5000（SM 8.6）上 |
+  |---|---|---|
+  | `CutlassW4A8LinearKernel` | 9.0 | 跳过 |
+  | `MacheteLinearKernel` | 9.0 | 跳过 |
+  | **`MarlinLinearKernel`** | 7.5 | **选中** |
+  | Conch、Exllama、Triton、Humming | — | 轮不到 |
+
+  日志也能确认：`Using MarlinLinearKernel for CompressedTensorsWNA16`。换成 H100，胜出的会是 Machete。
+- **创建张量**：`create_weights` 注册空参数。名字和 checkpoint 一致，所以加载就是直接拷贝。
+
+### 阶段 3：加载——每个 `int32` 装 8 个权重，每 128 个一个 scale
+
+**8 个一打包，128 个一组。** 我们 checkpoint 第 0 层的真实形状：
+
+| 张量 | 形状 | 类型 | 为什么是这个形状 |
+|---|---|---|---|
+| `q_proj.weight_packed` | [4096, 512] | int32 | 4096 个输入 ÷ 每个 int32 装 8 个 |
+| `q_proj.weight_scale` | [4096, 32] | bf16 | 4096 个输入 ÷ 组大小 128 |
+| `down_proj.weight_packed` | [4096, 1536] | int32 | 12288 个输入 ÷ 8 |
+| `down_proj.weight_scale` | [4096, 96] | bf16 | 12288 ÷ 128 |
+| `*.weight_shape` | [2] | int64 | 原始 (out, in)，解包用 |
+
+- **加载时合并**：checkpoint 里是 `q_proj`、`k_proj`、`v_proj`，vLLM 里只有一个 `qkv_proj`。`packed_modules_mapping` 负责映射，每个参数的 `weight_loader` 把一个分片拷进自己的切片。
+- **加载时切分**：开 tensor parallel 时，同一个 `weight_loader` 还会把每个张量切给对应的 GPU。
+- **显存核算**：4 位 + 每 128 个权重一个 BF16 scale = 每个权重 4.125 位。
+  - 线性层权重：6.95B × 4.125 / 8 ≈ 3.58 GB。
+  - Embedding + `lm_head`（BF16）：2 × 151936 × 4096 × 2 B ≈ 2.49 GB。
+  - 合计 ≈ 6.07 GB = **5.65 GiB**。实测：5.68 GiB。BF16 部分占了 40% 的显存。
+
+### 阶段 4：重排——进来是 checkpoint 布局，出去是 kernel 布局
+
+**磁盘布局为存储服务，Marlin 布局为速度服务。加载时转换一次。**
+
+- `process_weights_after_loading` 遍历每个模块。本例中：`CompressedTensorsLinearMethod` → `CompressedTensorsWNA16` → `MarlinLinearKernel`。
+- **权重**：`gptq_marlin_repack` 把打包的 INT4 重排成 Marlin 的 tile 顺序，让每个 warp 一次连续读取就拿到自己的 tile [[6]](https://arxiv.org/abs/2408.11743)。
+- **Scale**：`marlin_permute_scales` 做相应的重排。
+- **零点**：对称量化没有零点，Marlin 拿到一个空占位。
+- 启动时付一次代价，之后每个 token 都不再付。
+
+### 阶段 5：运行——BF16 进，INT4 权重，BF16 出
+
+**激活保持 BF16，权重在显存里保持 INT4，在 kernel 内部反量化。**
+
+```text
+LinearBase.forward(x)
+ └─ CompressedTensorsLinearMethod.apply
+     └─ CompressedTensorsWNA16.apply_weights
+         └─ MarlinLinearKernel.apply_weights
+             └─ apply_gptq_marlin_linear
+                 └─ torch.ops.vllm.marlin_gemm   # 在寄存器里 INT4 → BF16，tensor core MMA
+```
+
+- **为什么 batch 1 快 2.55 倍**：decode 每一步把所有权重读一遍。INT4 的字节数约为 BF16 的 1/4。读得少，等得少。
+- **为什么 batch 64 只快 1.27 倍**：同一份权重现在服务 64 个 token，GEMM 变成受计算限制。Marlin 仍然用 BF16 计算，剩下的提升空间很小。
+- **A5000 上大 batch 可以试什么**：INT8 W8A8。这样 GEMM 本身就用 INT8 计算（`CutlassInt8ScaledMMLinearKernel`）。
+
 ## 注意事项
 
 - **在 Ampere 上用 `fp8_per_channel` = 报错。** 它需要按 token 的 FP8 激活（SM 8.9+）。改用 `fp8_per_tensor`，走 W8A16 兜底。
