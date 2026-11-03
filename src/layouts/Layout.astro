@@ -124,6 +124,9 @@ const rssHref = getRelativeLocaleUrl(
         if (textSize && root) {
           root.style.setProperty("--article-size", textSize + "px");
         }
+        if (localStorage.getItem("code-line-numbers") === "on") {
+          root?.setAttribute("data-line-numbers", "");
+        }
         try {
           const font = JSON.parse(localStorage.getItem("page-font") ?? "null");
           if (font?.url && font?.family) {
@@ -156,6 +159,7 @@ const rssHref = getRelativeLocaleUrl(
       import "@/scripts/width";
       import "@/scripts/font";
       import "@/scripts/textsize";
+      import "@/scripts/linenumbers";
       import "@/scripts/mermaid";
     </script>
   </body>

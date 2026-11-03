@@ -140,4 +140,22 @@
       @apply border-border rounded-sm border px-0.5 py-px;
     }
   }
+
+  /* Code line numbers, toggled by #lines-btn (scripts/linenumbers.ts). Diff
+     lines keep their +/- marker instead of a number. */
+  html[data-line-numbers] .astro-code code {
+    counter-reset: line;
+  }
+  html[data-line-numbers] .astro-code .line {
+    counter-increment: line;
+  }
+  html[data-line-numbers] .astro-code .line:not(.diff)::before {
+    content: counter(line);
+    display: inline-block;
+    width: 2.5ch;
+    margin-right: 1.5ch;
+    text-align: right;
+    opacity: 0.4;
+    user-select: none;
+  }
 }
