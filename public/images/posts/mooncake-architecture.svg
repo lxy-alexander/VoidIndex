@@ -1,0 +1,261 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1720" viewBox="0 0 2400 1720">
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .rule { stroke: #dbe3eb; stroke-width: 2; }
+      .layer { font: 700 28px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #526474; }
+      .title { font: 700 42px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #182532; }
+      .subtitle { font: 400 21px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #657786; }
+      .h1 { font: 700 28px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #182532; }
+      .h2 { font: 700 23px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #243746; }
+      .body { font: 400 19px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #536575; }
+      .mono { font: 600 20px "DejaVu Sans Mono", monospace; fill: #33495a; }
+      .small { font: 400 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #627383; }
+      .note { font: 600 18px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #9f2347; }
+      .box { fill: #ffffff; stroke: #b9c7d3; stroke-width: 2.5; rx: 12; }
+      .app { fill: #ffffff; stroke: #9eb0bf; stroke-width: 2.5; stroke-dasharray: 10 8; rx: 14; }
+      .store { fill: #f2fbf6; stroke: #65a77b; stroke-width: 2.5; rx: 12; }
+      .control { fill: #f2f7fc; stroke: #6e98bd; stroke-width: 2.5; rx: 12; }
+      .tent { fill: #fff4f7; stroke: #c82259; stroke-width: 3; rx: 14; }
+      .classic { fill: #f7f8fa; stroke: #8395a5; stroke-width: 2.5; rx: 14; }
+      .transport { fill: #ffffff; stroke: #9aaebb; stroke-width: 2.2; rx: 10; }
+      .hardware { fill: #eef3f7; stroke: #9aabb8; stroke-width: 2.2; rx: 10; }
+      .badge { fill: #c82259; }
+      .badgeText { font: 700 17px "DejaVu Sans Mono", monospace; fill: white; }
+      .arrow { fill: none; stroke: #536776; stroke-width: 3; marker-end: url(#arrow); }
+      .arrowAccent { fill: none; stroke: #c82259; stroke-width: 3.5; marker-end: url(#arrowAccent); }
+      .arrowStore { fill: none; stroke: #4c9665; stroke-width: 3; marker-end: url(#arrowStore); }
+      .controlArrow { fill: none; stroke: #6f8da5; stroke-width: 2.5; stroke-dasharray: 8 7; marker-end: url(#arrowControl); }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#536776"/>
+    </marker>
+    <marker id="arrowAccent" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#c82259"/>
+    </marker>
+    <marker id="arrowStore" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4c9665"/>
+    </marker>
+    <marker id="arrowControl" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#6f8da5"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="2400" height="1720"/>
+  <text class="title" x="56" y="58">Mooncake 仓库级完整架构</text>
+  <text class="subtitle" x="56" y="91">控制面只交换元数据与决策；大块 Tensor / KV Cache 由数据面在进程之间直接传输</text>
+
+  <line class="rule" x1="30" y1="270" x2="2370" y2="270"/>
+  <line class="rule" x1="30" y1="495" x2="2370" y2="495"/>
+  <line class="rule" x1="30" y1="790" x2="2370" y2="790"/>
+  <line class="rule" x1="30" y1="1315" x2="2370" y2="1315"/>
+  <line class="rule" x1="30" y1="1515" x2="2370" y2="1515"/>
+
+  <text class="layer" x="45" y="185">应用层</text>
+  <text class="layer" x="45" y="385">接口与集成</text>
+  <text class="layer" x="45" y="650">控制面</text>
+  <text class="layer" x="45" y="1055">数据面</text>
+  <text class="layer" x="45" y="1425">运行库 / 驱动</text>
+  <text class="layer" x="45" y="1625">硬件与存储</text>
+
+  <!-- Application layer -->
+  <rect class="app" x="250" y="120" width="2050" height="115"/>
+  <text class="h1" x="1275" y="164" text-anchor="middle">推理、训练与数据系统</text>
+  <text class="body" x="1275" y="202" text-anchor="middle">vLLM · SGLang · TensorRT-LLM · LMCache · FastDeploy · RL / 权重同步 · 自定义应用</text>
+
+  <!-- API layer -->
+  <rect class="store" x="250" y="315" width="470" height="135"/>
+  <text class="h1" x="485" y="357" text-anchor="middle">Mooncake Store API</text>
+  <text class="body" x="485" y="393" text-anchor="middle">KV Cache / 权重对象：Put · Get</text>
+  <text class="small" x="485" y="424" text-anchor="middle">Python · C++ · Go · Rust · 各类 Connector</text>
+
+  <rect class="box" x="755" y="315" width="470" height="135"/>
+  <text class="h1" x="990" y="357" text-anchor="middle">Transfer Engine API</text>
+  <text class="body" x="990" y="393" text-anchor="middle">Segment · Buffer · BatchTransfer</text>
+  <text class="small" x="990" y="424" text-anchor="middle">C / C++ · Python · Rust · benchmark</text>
+
+  <rect class="control" x="1260" y="315" width="430" height="135"/>
+  <text class="h1" x="1475" y="357" text-anchor="middle">Mooncake PG / EP</text>
+  <text class="body" x="1475" y="393" text-anchor="middle">collective · P2P · MoE dispatch/combine</text>
+  <text class="small" x="1475" y="424" text-anchor="middle">弹性成员与故障恢复</text>
+
+  <rect class="control" x="1725" y="315" width="575" height="135"/>
+  <text class="h1" x="2012" y="357" text-anchor="middle">Conductor / Reshard</text>
+  <text class="body" x="2012" y="393" text-anchor="middle">前缀缓存路由 · TP/PP/EP/DP 逻辑放置</text>
+  <text class="small" x="2012" y="424" text-anchor="middle">查询 API · Planner · Binder · Executor</text>
+
+  <!-- App to APIs -->
+  <path class="arrowStore" d="M730,235 L485,315"/>
+  <path class="arrow" d="M1070,235 L990,315"/>
+  <path class="arrow" d="M1470,235 L1475,315"/>
+  <path class="arrow" d="M1880,235 L2012,315"/>
+
+  <!-- Control plane -->
+  <rect class="store" x="250" y="535" width="850" height="220"/>
+  <text class="h1" x="675" y="570" text-anchor="middle">Mooncake Store</text>
+  <rect class="box" x="280" y="593" width="305" height="130"/>
+  <text class="h2" x="432" y="628" text-anchor="middle">Store Client</text>
+  <text class="small" x="432" y="661" text-anchor="middle">对象切片 · 副本读写</text>
+  <text class="small" x="432" y="689" text-anchor="middle">TransferTask · Storage Backend</text>
+  <rect class="box" x="620" y="593" width="445" height="130"/>
+  <text class="h2" x="842" y="628" text-anchor="middle">Master Service</text>
+  <text class="small" x="842" y="661" text-anchor="middle">目录 · 放置 · 副本 · 租约 · 配额</text>
+  <text class="small" x="842" y="689" text-anchor="middle">成员 · 淘汰 · HA / standby</text>
+  <path class="controlArrow" d="M585,658 L620,658"/>
+  <text class="small" x="603" y="646" text-anchor="middle">RPC</text>
+
+  <rect class="control" x="1140" y="535" width="520" height="220"/>
+  <text class="h1" x="1400" y="575" text-anchor="middle">元数据、发现与拓扑</text>
+  <text class="body" x="1400" y="615" text-anchor="middle">Segment / Buffer / endpoint 元数据</text>
+  <text class="body" x="1400" y="650" text-anchor="middle">etcd · Redis · HTTP · P2PHANDSHAKE</text>
+  <text class="body" x="1400" y="685" text-anchor="middle">CPU / NUMA / GPU / NIC 拓扑</text>
+  <text class="small" x="1400" y="715" text-anchor="middle">只传控制信息，不承载对象 payload</text>
+  <circle class="badge" cx="1628" cy="550" r="17"/><text class="badgeText" x="1628" y="556" text-anchor="middle">09</text>
+
+  <rect class="control" x="1700" y="535" width="600" height="220"/>
+  <text class="h1" x="2000" y="575" text-anchor="middle">其他控制服务</text>
+  <rect class="box" x="1730" y="600" width="255" height="120"/>
+  <text class="h2" x="1857" y="635" text-anchor="middle">PG Coordinator</text>
+  <text class="small" x="1857" y="669" text-anchor="middle">Agents · rank 健康</text>
+  <text class="small" x="1857" y="697" text-anchor="middle">active membership</text>
+  <rect class="box" x="2015" y="600" width="255" height="120"/>
+  <text class="h2" x="2142" y="635" text-anchor="middle">Conductor</text>
+  <text class="small" x="2142" y="669" text-anchor="middle">全局 prefix index</text>
+  <text class="small" x="2142" y="697" text-anchor="middle">cache-aware routing</text>
+
+  <!-- API to control -->
+  <path class="arrowStore" d="M485,450 L485,593"/>
+  <path class="controlArrow" d="M1475,450 L1857,600"/>
+  <path class="controlArrow" d="M2012,450 L2142,600"/>
+
+  <!-- Data plane outer and wrapper -->
+  <rect class="box" x="250" y="835" width="2050" height="440"/>
+  <text class="small" x="275" y="866">每个参与传输的进程都嵌入 Transfer Engine；payload 在本地和对端已注册 Buffer 之间直传</text>
+  <rect class="box" x="430" y="885" width="1690" height="82"/>
+  <text class="h1" x="1275" y="918" text-anchor="middle">mooncake::TransferEngine 兼容入口</text>
+  <text class="small" x="1275" y="947" text-anchor="middle">MC_USE_TENT / MC_USE_TEV1 选择 TENT；否则进入 classic</text>
+
+  <!-- TENT branch -->
+  <rect class="tent" x="280" y="1000" width="990" height="240"/>
+  <text class="h1" x="775" y="1034" text-anchor="middle">TENT（Transfer Engine NEXT）</text>
+  <rect class="box" x="310" y="1060" width="245" height="85"/>
+  <text class="h2" x="432" y="1094" text-anchor="middle">tent::TransferEngine</text>
+  <text class="small" x="432" y="1123" text-anchor="middle">原生 façade</text>
+  <rect class="box" x="585" y="1055" width="650" height="95"/>
+  <text class="h2" x="910" y="1087" text-anchor="middle">tent::TransferEngineImpl Runtime</text>
+  <text class="small" x="910" y="1118" text-anchor="middle">TransportSelector · 分片/调度 · QoS/Deadline · Telemetry · Failover · Worker</text>
+  <path class="arrowAccent" d="M555,1102 L585,1102"/>
+
+  <rect class="transport" x="310" y="1170" width="205" height="48"/>
+  <text class="h2" x="412" y="1202" text-anchor="middle">RDMA</text>
+  <circle class="badge" cx="492" cy="1178" r="17"/><text class="badgeText" x="492" y="1184" text-anchor="middle">01</text>
+  <rect class="transport" x="535" y="1170" width="220" height="48"/>
+  <text class="h2" x="645" y="1202" text-anchor="middle">NVLink / IPC</text>
+  <circle class="badge" cx="730" cy="1178" r="17"/><text class="badgeText" x="730" y="1184" text-anchor="middle">02</text>
+  <rect class="transport" x="775" y="1170" width="205" height="48"/>
+  <text class="h2" x="877" y="1202" text-anchor="middle">TCP / SHM</text>
+  <rect class="transport" x="1000" y="1170" width="235" height="48"/>
+  <text class="h2" x="1117" y="1202" text-anchor="middle">GDS / XPU / 其他</text>
+  <path class="arrowAccent" d="M910,1150 L910,1168"/>
+
+  <!-- Classic branch -->
+  <rect class="classic" x="1300" y="1000" width="970" height="240"/>
+  <text class="h1" x="1785" y="1034" text-anchor="middle">classic Transfer Engine</text>
+  <rect class="box" x="1330" y="1060" width="270" height="85"/>
+  <text class="h2" x="1465" y="1094" text-anchor="middle">TransferEngineImpl</text>
+  <text class="small" x="1465" y="1123" text-anchor="middle">batch / lifecycle / notify</text>
+  <circle class="badge" cx="1575" cy="1068" r="17"/><text class="badgeText" x="1575" y="1074" text-anchor="middle">06</text>
+  <rect class="box" x="1630" y="1060" width="270" height="85"/>
+  <text class="h2" x="1765" y="1094" text-anchor="middle">MultiTransport</text>
+  <text class="small" x="1765" y="1123" text-anchor="middle">分发 · fallback · cleanup</text>
+  <path class="arrow" d="M1600,1102 L1630,1102"/>
+  <rect class="transport" x="1330" y="1170" width="205" height="48"/>
+  <text class="h2" x="1432" y="1202" text-anchor="middle">RDMA</text>
+  <rect class="transport" x="1555" y="1170" width="220" height="48"/>
+  <text class="h2" x="1665" y="1202" text-anchor="middle">Nvlink / IPC</text>
+  <circle class="badge" cx="1750" cy="1178" r="17"/><text class="badgeText" x="1750" y="1184" text-anchor="middle">03</text>
+  <rect class="transport" x="1795" y="1170" width="205" height="48"/>
+  <text class="h2" x="1897" y="1202" text-anchor="middle">TCP / SHM</text>
+  <rect class="transport" x="2020" y="1170" width="220" height="48"/>
+  <text class="h2" x="2130" y="1202" text-anchor="middle">EFA / HIP / 其他</text>
+  <path class="arrow" d="M1765,1145 L1765,1168"/>
+
+  <!-- Control/data arrows -->
+  <path class="arrowStore" d="M432,723 C330,760 220,800 220,900 L220,1102 L310,1102"/>
+  <text class="small" x="250" y="810">TENT 原生 API 直连</text>
+  <path class="arrowStore" d="M432,723 C520,780 620,825 650,885"/>
+  <text class="small" x="545" y="806">classic / 兼容入口</text>
+  <path class="arrow" d="M990,450 L990,885"/>
+  <path class="arrow" d="M1475,450 C1475,770 1275,770 1275,885"/>
+  <path class="arrow" d="M2012,450 C2012,790 1950,790 1950,885"/>
+  <text class="small" x="1970" y="804">Reshard executor</text>
+  <path class="controlArrow" d="M1400,755 L1400,885"/>
+  <path class="arrowAccent" d="M950,967 L775,1000"/>
+  <text class="note" x="820" y="990">use_tent = true</text>
+  <path class="arrow" d="M1600,967 L1785,1000"/>
+  <text class="small" x="1650" y="990">use_tent = false</text>
+
+  <!-- Runtime/driver -->
+  <rect class="transport" x="250" y="1360" width="355" height="110"/>
+  <text class="h1" x="427" y="1402" text-anchor="middle">libibverbs / RDMA Runtime</text>
+  <text class="small" x="427" y="1438" text-anchor="middle">QP · CQ · MR · endpoint / rail</text>
+
+  <rect class="transport" x="635" y="1360" width="355" height="110"/>
+  <text class="h1" x="812" y="1402" text-anchor="middle">CUDA Runtime / Driver</text>
+  <text class="small" x="812" y="1438" text-anchor="middle">IPC · P2P · memcpy · stream</text>
+
+  <rect class="transport" x="1020" y="1360" width="355" height="110"/>
+  <text class="h1" x="1197" y="1402" text-anchor="middle">Socket / POSIX SHM</text>
+  <text class="small" x="1197" y="1438" text-anchor="middle">TCP · mmap · local memcpy</text>
+
+  <rect class="transport" x="1405" y="1360" width="355" height="110"/>
+  <text class="h1" x="1582" y="1402" text-anchor="middle">Storage I/O Runtime</text>
+  <text class="small" x="1582" y="1438" text-anchor="middle">NVMe-oF · cuFile / GDS · backend</text>
+
+  <rect class="transport" x="1790" y="1360" width="510" height="110"/>
+  <text class="h1" x="2045" y="1402" text-anchor="middle">异构加速器与网络 Runtime</text>
+  <text class="small" x="2045" y="1438" text-anchor="middle">EFA · HIP/ROCm · Ascend · MUSA · XPU · CXL</text>
+
+  <!-- Simplified transport-to-runtime fanout -->
+  <path class="arrow" d="M412,1218 L427,1360"/>
+  <path class="arrowAccent" d="M645,1218 L812,1360"/>
+  <path class="arrow" d="M877,1218 L1197,1360"/>
+  <path class="arrow" d="M1117,1218 L1582,1360"/>
+  <path class="arrow" d="M1432,1218 L427,1360"/>
+  <path class="arrow" d="M1665,1218 L812,1360"/>
+  <path class="arrow" d="M1897,1218 L1197,1360"/>
+  <path class="arrow" d="M2130,1218 L2045,1360"/>
+
+  <!-- Hardware -->
+  <rect class="hardware" x="250" y="1560" width="355" height="105"/>
+  <text class="h1" x="427" y="1602" text-anchor="middle">RDMA NIC / Fabric</text>
+  <text class="small" x="427" y="1638" text-anchor="middle">InfiniBand · RoCE · EFA</text>
+
+  <rect class="hardware" x="635" y="1560" width="355" height="105"/>
+  <text class="h1" x="812" y="1602" text-anchor="middle">GPU / VRAM</text>
+  <text class="small" x="812" y="1638" text-anchor="middle">NVLink 或 PCIe P2P</text>
+
+  <rect class="hardware" x="1020" y="1560" width="355" height="105"/>
+  <text class="h1" x="1197" y="1602" text-anchor="middle">CPU / DRAM</text>
+  <text class="small" x="1197" y="1638" text-anchor="middle">NUMA · Ethernet · shared memory</text>
+
+  <rect class="hardware" x="1405" y="1560" width="355" height="105"/>
+  <text class="h1" x="1582" y="1602" text-anchor="middle">SSD / NVMe / 对象存储</text>
+  <text class="small" x="1582" y="1638" text-anchor="middle">本地、远端与冷存储层</text>
+
+  <rect class="hardware" x="1790" y="1560" width="510" height="105"/>
+  <text class="h1" x="2045" y="1602" text-anchor="middle">其他 Accelerator / Interconnect</text>
+  <text class="small" x="2045" y="1638" text-anchor="middle">AMD · Ascend · Intel XPU · CXL · 专用互联</text>
+
+  <path class="arrow" d="M427,1470 L427,1560"/>
+  <path class="arrowAccent" d="M812,1470 L812,1560"/>
+  <path class="arrow" d="M1197,1470 L1197,1560"/>
+  <path class="arrow" d="M1582,1470 L1582,1560"/>
+  <path class="arrow" d="M2045,1470 L2045,1560"/>
+
+  <!-- Legend -->
+  <path class="arrow" d="M1770,70 L1840,70"/>
+  <text class="small" x="1855" y="76">数据 / 调用路径</text>
+  <path class="controlArrow" d="M2040,70 L2110,70"/>
+  <text class="small" x="2125" y="76">控制信息</text>
+</svg>
