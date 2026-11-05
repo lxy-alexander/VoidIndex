@@ -13,6 +13,19 @@ draft: false
 ## 调用图
 
 ```mermaid
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "ui-sans-serif, system-ui, sans-serif",
+    "fontSize": "15px",
+    "lineColor": "#C4B5A4",
+    "textColor": "#243038",
+    "primaryTextColor": "#243038",
+    "clusterBkg": "#FFFcf7",
+    "clusterBorder": "#E7D9C8",
+    "edgeLabelBackground": "#FFFcf7"
+  }
+}}%%
 flowchart TB
 
 subgraph plan["执行计划"]
@@ -104,6 +117,30 @@ LLW -->|"25 _resolve_rocm_linear"| DG
 VLO -->|"26 from_local_logits"| LLW
 MLO -->|"27 get_logprob_op · entropy"| KR
 KR -->|"28 _platform"| DC
+
+classDef planNode fill:#FFF6E4,stroke:#C4A15A,stroke-width:1.6px,color:#3C2F1A
+classDef trainNode fill:#EAF3FB,stroke:#4E7EAB,stroke-width:1.6px,color:#1C3348
+classDef rollNode fill:#E7F6F0,stroke:#2F8A68,stroke-width:1.6px,color:#14382C
+classDef resolveNode fill:#F4EEF8,stroke:#7A62A0,stroke-width:1.6px,color:#2E2440
+classDef attnNode fill:#FDECE6,stroke:#C46A4E,stroke-width:1.6px,color:#3F241C
+classDef ffnNode fill:#F8EBD4,stroke:#B8883A,stroke-width:1.6px,color:#3D2E14
+classDef logpNode fill:#F3EEE4,stroke:#8C7352,stroke-width:1.6px,color:#2C261C
+
+class IP,OAC planNode
+class MI,MAO,MFO,MLO trainNode
+class VI,VAO,VFO,VLO rollNode
+class SOH,OB,OS,SOC,KR resolveNode
+class AAO,SC,SR,SFC,SRC attnNode
+class FFN ffnNode
+class LLW,SLA,RVP,DG,DC logpNode
+
+style plan fill:#FBF7F0,stroke:#E6D3B0,color:#6A5430
+style train fill:#F4F8FC,stroke:#C5D7EA,color:#2A4A68
+style rollout fill:#F3FAF6,stroke:#C5E4D6,color:#1E5C45
+style resolve fill:#F8F5FB,stroke:#DDD0EA,color:#534068
+style attn fill:#FDF6F3,stroke:#F0D2C8,color:#7A4636
+style ffn fill:#FBF6EE,stroke:#EAD7B4,color:#6E5424
+style logp fill:#F8F5EF,stroke:#E4D8C4,color:#5C4E3A
 ```
 
 ## 调用步骤

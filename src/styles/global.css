@@ -148,6 +148,12 @@ html.dark .toc-aside li a.active {
   @apply text-xs;
 }
 
+/* Labels keep Mermaid's colours; .app-prose would repaint their <p>. */
+.mermaid-figure svg p,
+.mermaid-viewer svg p {
+  color: inherit;
+}
+
 /* Font picker (scripts/font.ts) */
 html[data-font] body,
 html[data-font] .font-app {
