@@ -268,16 +268,8 @@ const ogImage = ogImageUrl
       const wrapper = document.createElement("div");
       wrapper.style.position = "relative";
 
-      const computedStyle = getComputedStyle(codeBlock);
-      const hasFileNameOffset =
-        computedStyle.getPropertyValue("--file-name-offset").trim() !== "";
-
-      const topClass = hasFileNameOffset
-        ? "top-(--file-name-offset)"
-        : "-top-3";
-
       const copyButton = document.createElement("button");
-      copyButton.className = `copy-code absolute end-3 ${topClass} rounded bg-muted border border-muted px-2 py-1 text-xs leading-4 text-foreground font-medium`;
+      copyButton.className = `copy-code absolute end-3 top-2 rounded bg-muted border border-muted px-2 py-1 text-xs leading-4 text-foreground font-medium`;
       copyButton.innerHTML = copyButtonLabel;
       codeBlock.setAttribute("tabindex", "0");
       codeBlock.appendChild(copyButton);
@@ -294,13 +286,32 @@ const ogImage = ogImageUrl
       const code = block.querySelector("code");
       const text = code?.innerText;
 
-      await navigator.clipboard.writeText(text ?? "");
+      const copied = await writeClipboard(text ?? "");
 
-      button.innerText = "Copied";
+      button.innerText = copied ? "Copied" : "Failed";
 
       setTimeout(() => {
         button.innerText = copyButtonLabel;
       }, 700);
+    }
+
+    // The Clipboard API is refused in some embedded browsers; fall back to a
+    // hidden textarea so the button still copies there.
+    async function writeClipboard(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        const area = document.createElement("textarea");
+        area.value = text;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.append(area);
+        area.select();
+        const copied = document.execCommand("copy");
+        area.remove();
+        return copied;
+      }
     }
   }
   attachCopyButtons();
