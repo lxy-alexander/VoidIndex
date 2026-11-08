@@ -43,15 +43,15 @@ flowchart TB
     subgraph TRAIN["训练"]
         A["Megatron Actor × 4"]
     end
-    T -- "1 generate(rollout_id)" --> RM
-    RM -- "2 取 32 个 prompt × 8" --> DS
-    RM -- "3 生成请求（token 进）" --> VL
-    VL -- "4 返回 token 和 logprob" --> RM
-    RM -- "5 打分，组内归一化" --> BB
-    BB -- "6 返回 4 个数据引用" --> T
-    T -- "7 vLLM sleep" --> VL
-    T -- "8 async_train" --> A
-    A -- "9 同步新权重" --> VL
+    T -- "① generate(rollout_id)" --> RM
+    RM -- "② 取 32 个 prompt × 8" --> DS
+    RM -- "③ 生成请求（token 进）" --> VL
+    VL -- "④ 返回 token 和 logprob" --> RM
+    RM -- "⑤ 打分，组内归一化" --> BB
+    BB -- "⑥ 返回 4 个数据引用" --> T
+    T -- "⑦ vLLM sleep" --> VL
+    T -- "⑧ async_train" --> A
+    A -- "⑨ 同步新权重" --> VL
     style CTRL fill:transparent
     style GEN fill:transparent
     style DATA fill:transparent
@@ -68,7 +68,7 @@ flowchart TB
 
 下面解释图中 9 个步骤，数值取自后文 GRPO 例子的第 1 轮（rollout 0），耗时取第 2–10 轮的中位数。
 
-- **1 generate(rollout_id)**：`train()` 调用 `ray.get(rollout_manager.generate.remote(rollout_id))`，一直阻塞到这一轮的数据全部准备好。例子共跑 10 轮（`--num-rollout 10`）。
+- **① generate(rollout_id)**：`train()` 调用 `ray.get(rollout_manager.generate.remote(rollout_id))`，一直阻塞到这一轮的数据全部准备好。例子共跑 10 轮（`--num-rollout 10`）。
 
     - `train()`：Ray driver 进程里的普通函数，不是 Ray actor。用 `python3 train.py` 启动的主进程就是 driver，它第一次调用 Ray 时在本机起一个 Ray 集群，之后由它创建和调用所有 actor。verl 的控制器 `TaskRunnerV1` 是 Ray actor，vime 和 slime 则把控制逻辑直接写在 driver 里。
 
@@ -85,7 +85,7 @@ flowchart TB
 
     - 训练前评测：进入主循环前先在 GSM8K 测试集 1319 题上做一次 greedy 评测，准确率 55.1%。
 
-- **2 取 32 个 prompt × 8**：`RolloutDataSource.get_samples(32)` 从打乱后的训练集（7473 题）里取 32 个 prompt，每个深拷贝 8 份，一共 256 个 `Sample`。
+- **② 取 32 个 prompt × 8**：`RolloutDataSource.get_samples(32)` 从打乱后的训练集（7473 题）里取 32 个 prompt，每个深拷贝 8 份，一共 256 个 `Sample`。
 
     - `Sample`：一条回答的全部信息，包括 prompt、生成的 token、奖励、logprob 和状态，定义在 `vime/utils/types.py`。
 
@@ -103,7 +103,7 @@ flowchart TB
 
         ```
 
-- **3 生成请求（token 进）**：每组起一个异步任务，组内 8 条各发一个请求，256 条同时发出。请求经 vllm-router 分给 4 个 vLLM，temperature=1.0，最多生成 1024 个 token。
+- **③ 生成请求（token 进）**：每组起一个异步任务，组内 8 条各发一个请求，256 条同时发出。请求经 vllm-router 分给 4 个 vLLM，temperature=1.0，最多生成 1024 个 token。
 
     - token 进：请求体直接是 token id，不是文本，避免"解码再分词后 token 对不上"。
 
@@ -125,7 +125,7 @@ flowchart TB
 
     - `VLLMEngine`：每个引擎是一个 Ray actor，它在子进程里跑原生的 `vllm serve`，占 1 张卡、最多 50% 显存，KV cache 能放 40.9 万个 token（43.7 GiB）。
 
-- **4 返回 token 和 logprob**：vLLM 用连续批处理一边解码一边接新请求，每条写完就单独返回。返回体里直接有生成的 token id 和每个 token 的 logprob，存进 `sample.tokens` 和 `rollout_log_probs`。
+- **④ 返回 token 和 logprob**：vLLM 用连续批处理一边解码一边接新请求，每条写完就单独返回。返回体里直接有生成的 token id 和每个 token 的 logprob，存进 `sample.tokens` 和 `rollout_log_probs`。
 
     - 连续批处理（continuous batching）：不等整批都写完，谁先写完谁先返回，空出来的位置马上接新请求。
 
@@ -133,7 +133,7 @@ flowchart TB
 
     - logprob：vLLM 采样时算出的对数概率。这个例子只用它做"训推一致性"监控，训练用的是 Megatron 自己算的 logprob（见第 8 步）。
 
-- **5 打分，组内归一化**：每条回答返回后立刻打分，答对 1、答错 0。256 条都回来后，`BatchBuilder` 按组做 GRPO 归一化。第 1 轮平均奖励 0.586。
+- **⑤ 打分，组内归一化**：每条回答返回后立刻打分，答对 1、答错 0。256 条都回来后，`BatchBuilder` 按组做 GRPO 归一化。第 1 轮平均奖励 0.586。
 
     - 打分：`--rm-type math` 取回答里最后一个 `\boxed{}`，和标准答案比较。
 
@@ -148,7 +148,7 @@ flowchart TB
 
     - 全对或全错的组：标准差为 0，优势全是 0，等于不参与训练。第 1 轮 32 组里有 14 组是这样（9 组全对、5 组全错），112 条样本白生成了。
 
-- **6 返回 4 个数据引用**：`split_by_dp` 按长度把 256 条均衡分给 4 个训练 rank，每个 64 条，再各自 `ray.put` 进 object store，返回 4 个 `Box`。
+- **⑥ 返回 4 个数据引用**：`split_by_dp` 按长度把 256 条均衡分给 4 个训练 rank，每个 64 条，再各自 `ray.put` 进 object store，返回 4 个 `Box`。
 
     - DP rank：数据并行的编号。例子里 TP=PP=CP=1，所以 4 张卡就是 4 个 DP rank，各算一份数据。
 
@@ -163,7 +163,7 @@ flowchart TB
 
     - `Box`：只是包了一层 `ObjectRef` 的小对象。driver 拿到的是 4 张"取货单"，数据本身留在 object store。
 
-- **7 vLLM sleep**：driver 让 4 个 vLLM 进入 sleep，每个约 0.1 s 释放约 45.7 GiB 显存。
+- **⑦ vLLM sleep**：driver 让 4 个 vLLM 进入 sleep，每个约 0.1 s 释放约 45.7 GiB 显存。
 
     - sleep：vLLM 进程不退出，只释放显存。vime 发的是 `POST /sleep?level=2&mode=keep`。
 
@@ -174,7 +174,7 @@ flowchart TB
 
         RL 每轮都要装新权重，旧权重留着没用，所以用 level 2，省掉一次 CPU 拷贝。
 
-- **8 async_train**：driver 把第 i 个引用交给第 i 个训练 actor。每个 actor 先把训练状态搬回 GPU，再算 ref logprob、算优势、训练，整轮只做 1 次 `optimizer.step`，最后把训练状态搬走、释放显存。
+- **⑧ async_train**：driver 把第 i 个引用交给第 i 个训练 actor。每个 actor 先把训练状态搬回 GPU，再算 ref logprob、算优势、训练，整轮只做 1 次 `optimizer.step`，最后把训练状态搬走、释放显存。
 
     - 搬回 GPU（`wake_up`）：`torch_memory_saver.resume()` 把上一轮暂停时搬走的参数、梯度和优化器状态放回 GPU，再重建 NCCL 通信组，约 2.2 s。
 
@@ -195,7 +195,7 @@ flowchart TB
 
     - 搬走（`sleep`）：先把新的 actor 权重备份到 CPU（第 9 步就从这份备份里读），再 `torch_memory_saver.pause()` 释放显存、销毁 NCCL 组，约 5.4 s。这是每轮最大的一块固定开销。
 
-- **9 同步新权重**：先唤醒 vLLM 的权重显存，再把新权重发过去，最后恢复 KV cache，权重同步本身约 0.78 s。每 5 轮评测一次。
+- **⑨ 同步新权重**：先唤醒 vLLM 的权重显存，再把新权重发过去，最后恢复 KV cache，权重同步本身约 0.78 s。每 5 轮评测一次。
 
     - 如何同步：每张卡上的 Megatron 把权重转成 HF 格式，打包成一块连续显存，通过 CUDA IPC 把"钥匙"交给同卡的 vLLM。
 

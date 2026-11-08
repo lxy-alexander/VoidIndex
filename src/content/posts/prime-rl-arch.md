@@ -54,15 +54,15 @@ flowchart TB
     subgraph TRN["训练：GPU 2、3"]
         TR["trainer（FSDP2）"]
     end
-    DP -- "1 派发任务，每个 16 次" --> ES
-    ES -- "2 生成请求（token 进）" --> VL
-    VL -- "3 返回 token 和 logprob" --> ES
-    ES -- "4 Episode（含奖励）" --> TS
-    TS -- "5 组满算优势，凑满 128 条" --> PK
-    PK -- "6 ZMQ 发送 micro-batch" --> TR
-    TR -- "7 NCCL 广播新权重" --> VL
-    VL -- "8 确认新版本" --> WW
-    WW -- "9 打开派发闸门" --> DP
+    DP -- "① 派发任务，每个 16 次" --> ES
+    ES -- "② 生成请求（token 进）" --> VL
+    VL -- "③ 返回 token 和 logprob" --> ES
+    ES -- "④ Episode（含奖励）" --> TS
+    TS -- "⑤ 组满算优势，凑满 128 条" --> PK
+    PK -- "⑥ ZMQ 发送 micro-batch" --> TR
+    TR -- "⑦ NCCL 广播新权重" --> VL
+    VL -- "⑧ 确认新版本" --> WW
+    WW -- "⑨ 打开派发闸门" --> DP
     style ORCH fill:transparent
     style ENV fill:transparent
     style INF fill:transparent
@@ -79,7 +79,7 @@ flowchart TB
 
 下面解释图中 9 个步骤，数值取自后文 reverse-text 例子：每步 128 条 = 8 个任务 × 16，GPU 0、1 跑 vLLM，GPU 2、3 跑 trainer，共 20 步。这 9 步不是一步接一步地执行，而是同时在跑的流水线：trainer 训练第 n 步时，vLLM 已经在为后面的步生成数据。
 
-- **1 派发任务，每个 16 次**：`Dispatcher` 只要还有并发名额、派发闸门是开的，就从训练集取一个任务，把同一个任务拆成 16 次独立的 run 发给 env-server。
+- **① 派发任务，每个 16 次**：`Dispatcher` 只要还有并发名额、派发闸门是开的，就从训练集取一个任务，把同一个任务拆成 16 次独立的 run 发给 env-server。
 
     - 任务（task）：一道待回答的题。reverse-text 的任务是"把一段文字逐字符反转"，训练集 1000 道，评测集 256 道。
 
@@ -94,7 +94,7 @@ flowchart TB
 
     - 派发闸门：控制 orchestrator 比 vLLM 的权重版本领先多少，见第 9 步。
 
-- **2 生成请求（token 进）**：env-server 把任务拼成聊天消息，由 renderer 在客户端套模板、转成 token，再调用 vLLM 的 `/inference/v1/generate`。最多生成 128 个 token，temperature=1.0。
+- **② 生成请求（token 进）**：env-server 把任务拼成聊天消息，由 renderer 在客户端套模板、转成 token，再调用 vLLM 的 `/inference/v1/generate`。最多生成 128 个 token，temperature=1.0。
 
     - 消息内容：
 
@@ -107,7 +107,7 @@ flowchart TB
 
     - 评测走另一个接口：评测只需要文本，用的是普通的 `/v1/chat/completions`。
 
-- **3 返回 token 和 logprob**：vLLM 返回生成的 token、每个 token 的 logprob，以及生成时用的权重版本。
+- **③ 返回 token 和 logprob**：vLLM 返回生成的 token、每个 token 的 logprob，以及生成时用的权重版本。
 
     - logprob：在 prime-rl 里，这份 vLLM 算出的 logprob 就是训练用的"行为策略"概率。trainer 不再重算 old logprob，省掉一次前向（见第 7 步）。
 
@@ -115,7 +115,7 @@ flowchart TB
 
     - 第 1 步：prompt 平均 54 个 token，回答平均 111 个 token。
 
-- **4 Episode（含奖励）**：env-server 从回答里取出 `<reversed_text>...</reversed_text>` 中间的文字，和正确答案比较相似度，作为奖励。完成的 Episode 回到 orchestrator。
+- **④ Episode（含奖励）**：env-server 从回答里取出 `<reversed_text>...</reversed_text>` 中间的文字，和正确答案比较相似度，作为奖励。完成的 Episode 回到 orchestrator。
 
     - 奖励：用 Python 的 `SequenceMatcher` 算两个字符串的相似度，0 到 1。
 
@@ -130,7 +130,7 @@ flowchart TB
 
     - Episode：一次 run 的完整记录，包括 token、mask、logprob、权重版本和奖励。
 
-- **5 组满算优势，凑满 128 条**：orchestrator 把回来的 Episode 放进 `TrainSink`。同一组 16 条到齐后才算 GRPO 优势；攒够 128 条组成一个训练 batch。
+- **⑤ 组满算优势，凑满 128 条**：orchestrator 把回来的 Episode 放进 `TrainSink`。同一组 16 条到齐后才算 GRPO 优势；攒够 128 条组成一个训练 batch。
 
     - GRPO 优势：只减组均值，不除标准差。
 
@@ -144,7 +144,7 @@ flowchart TB
 
     - staleness：一个 token 是几步之前的权重生成的。超过 `max_staleness=8` 的 token 不进 loss；一条样本的 token 全部过旧，整条丢掉。
 
-- **6 ZMQ 发送 micro-batch**：`BatchPacker` 把 128 条"prompt + 回答"拼成长度 2048 的 packed 序列，按 2 个 trainer rank 切开，经 ZMQ 发出去。发送会阻塞到 trainer 来取，发完训练步数加 1。
+- **⑥ ZMQ 发送 micro-batch**：`BatchPacker` 把 128 条"prompt + 回答"拼成长度 2048 的 packed 序列，按 2 个 trainer rank 切开，经 ZMQ 发出去。发送会阻塞到 trainer 来取，发完训练步数加 1。
 
     - packed 序列：把多条短样本首尾相接拼成一条长序列，再用 `position_ids` 和每条的长度告诉 attention 边界在哪，避免 padding 浪费算力。
 
@@ -156,7 +156,7 @@ flowchart TB
 
     - ZMQ：一个轻量的消息队列库，这里点对点地把字节发给 trainer，不经过任何中间存储。
 
-- **7 NCCL 广播新权重**：trainer 收到一批数据后，用当前模型算 logprob，和 vLLM 的 logprob 一起算 IPO loss，做 1 次 `optimizer.step`，然后把完整参数通过 NCCL 广播给 2 个 vLLM。
+- **⑦ NCCL 广播新权重**：trainer 收到一批数据后，用当前模型算 logprob，和 vLLM 的 logprob 一起算 IPO loss，做 1 次 `optimizer.step`，然后把完整参数通过 NCCL 广播给 2 个 vLLM。
 
     - IPO loss：直接用 π_θ / π_vLLM 作为重要性比率，而不是 π_θ / π_old。
 
@@ -171,11 +171,11 @@ flowchart TB
 
     - NCCL 广播：trainer 和 vLLM 在不同的卡上，不能用 CUDA IPC，改用 NCCL 把权重从 trainer 的 GPU 直接发到 vLLM 的 GPU。
 
-- **8 确认新版本**：orchestrator 的 `WeightWatcher` 发现新版本发布后，先取消过旧的 rollout，再让 vLLM 暂停、接收并加载 NCCL 发来的权重、恢复生成，最后把策略版本号更新为新版本。
+- **⑧ 确认新版本**：orchestrator 的 `WeightWatcher` 发现新版本发布后，先取消过旧的 rollout，再让 vLLM 暂停、接收并加载 NCCL 发来的权重、恢复生成，最后把策略版本号更新为新版本。
 
     - vLLM 侧的请求顺序：`POST /pause?mode=keep` → `POST /update_weights` → `POST /resume`。`mode=keep` 让正在生成的请求原地暂停，换完权重接着生成，所以一条回答的前半段和后半段可能来自不同版本。
 
-- **9 打开派发闸门**：orchestrator 比较已发出的 batch 数和 vLLM 的权重版本，领先超过 1 步就关闸，不再派发新的训练 rollout；新版本到位后重新打开。
+- **⑨ 打开派发闸门**：orchestrator 比较已发出的 batch 数和 vLLM 的权重版本，领先超过 1 步就关闸，不再派发新的训练 rollout；新版本到位后重新打开。
 
     - 闸门公式：
 

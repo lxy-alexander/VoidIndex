@@ -94,15 +94,15 @@ GP100 的 SM 有 64 个 FP32 核，分成两个处理块，核数只有 Maxwell 
 
 **数据流**：
 
-![Pascal 数据流：HBM2 → L2 → L1 → 寄存器 → FP32 核 → 寄存器 → L2 → HBM2](https://img.voidindex.net/posts/nvidia-gpu-architectures/459d589723295807.svg)
+![Pascal 数据流：HBM2 → L2 → L1 → 寄存器 → FP32 核 → 寄存器 → L2 → HBM2](https://img.voidindex.net/posts/nvidia-gpu-architectures/6a0ac952cf6898c4.svg)
 
-- **1 → 2 `ld.global`**：每个线程发出读指令，数据从 HBM2 读进 L2。
-- **2 → 3 缓存**：数据经过 L1，同一 SM 内再次读取时可以直接命中。
-- **3 → 4 装入**：数据进入线程自己的寄存器。一块数据要被多个线程复用时，线程先把它从寄存器写进 shared memory，`__syncthreads()` 之后其他线程再读。
-- **4 → 5 `FFMA / HFMA2`**：FP32 核从寄存器取操作数，每个线程每个时钟做一次 FP32 乘加；FP16 用 HFMA2，一次算两个。
-- **5 → 6 结果**：乘加结果写回寄存器，沿 K 方向循环累加。
-- **6 → 7 `st.global`**：算完后结果从寄存器写出，进入 L2。
-- **7 → 8 写回**：L2 把数据写回 HBM2。另一张 GPU 的数据可以经 NVLink 1 直接进入本卡的 L2，不经过 CPU。
+- **① → ② `ld.global`**：每个线程发出读指令，数据从 HBM2 读进 L2。
+- **② → ③ 缓存**：数据经过 L1，同一 SM 内再次读取时可以直接命中。
+- **③ → ④ 装入**：数据进入线程自己的寄存器。一块数据要被多个线程复用时，线程先把它从寄存器写进 shared memory，`__syncthreads()` 之后其他线程再读。
+- **④ → ⑤ `FFMA / HFMA2`**：FP32 核从寄存器取操作数，每个线程每个时钟做一次 FP32 乘加；FP16 用 HFMA2，一次算两个。
+- **⑤ → ⑥ 结果**：乘加结果写回寄存器，沿 K 方向循环累加。
+- **⑥ → ⑦ `st.global`**：算完后结果从寄存器写出，进入 L2。
+- **⑦ → ⑧ 写回**：L2 把数据写回 HBM2。另一张 GPU 的数据可以经 NVLink 1 直接进入本卡的 L2，不经过 CPU。
 
 **关键变化**：
 
@@ -119,15 +119,15 @@ SM 改回 4 个处理块，每块 2 个 Tensor Core，每 SM 共 8 个。每个 
 
 **数据流**：
 
-![Volta 数据流：HBM2 → L2 / L1 → 寄存器 → shared memory → 寄存器 → Tensor Core → 寄存器 → HBM2](https://img.voidindex.net/posts/nvidia-gpu-architectures/2f1a4ce136597b25.svg)
+![Volta 数据流：HBM2 → L2 / L1 → 寄存器 → shared memory → 寄存器 → Tensor Core → 寄存器 → HBM2](https://img.voidindex.net/posts/nvidia-gpu-architectures/ea36780a8303a273.svg)
 
-- **1 → 2 `ld.global`**：线程从 HBM2 读取 A、B 的 tile，经过 L2 和 L1。
-- **2 → 3 装入**：数据先进入线程的寄存器。这一步和下一步都要占用线程和寄存器。
-- **3 → 4 `st.shared`**：线程把数据写进 shared memory，供整个 block 复用。
-- **4 → 5 读片段**：warp 从 shared memory 读出 Tensor Core 需要的矩阵片段，放进寄存器。
-- **5 → 6 `mma.sync`**（本代新增）：32 个线程协作，把寄存器里的片段交给 Tensor Core，完成一个 16×16×16 的矩阵乘。
-- **6 → 7 累加**（本代新增）：结果累加到寄存器里的累加器 C，沿 K 方向循环直到算完。
-- **7 → 8 `st.global`**：累加器从寄存器写回 HBM2。
+- **① → ② `ld.global`**：线程从 HBM2 读取 A、B 的 tile，经过 L2 和 L1。
+- **② → ③ 装入**：数据先进入线程的寄存器。这一步和下一步都要占用线程和寄存器。
+- **③ → ④ `st.shared`**：线程把数据写进 shared memory，供整个 block 复用。
+- **④ → ⑤ 读片段**：warp 从 shared memory 读出 Tensor Core 需要的矩阵片段，放进寄存器。
+- **⑤ → ⑥ `mma.sync`**（本代新增）：32 个线程协作，把寄存器里的片段交给 Tensor Core，完成一个 16×16×16 的矩阵乘。
+- **⑥ → ⑦ 累加**（本代新增）：结果累加到寄存器里的累加器 C，沿 K 方向循环直到算完。
+- **⑦ → ⑧ `st.global`**：累加器从寄存器写回 HBM2。
 - **瓶颈**：搬数据和计算靠同一批线程，线程在第 1–4 步搬运时，Tensor Core 只能等着。
 
 **关键变化**：
@@ -145,14 +145,14 @@ SM 改回 4 个处理块，每块 2 个 Tensor Core，每 SM 共 8 个。每个 
 
 **数据流**：
 
-![Ampere 数据流：HBM2e → L2 → shared memory → 寄存器 → Tensor Core → 寄存器 → HBM2e](https://img.voidindex.net/posts/nvidia-gpu-architectures/4bd1b131d8fb0f9f.svg)
+![Ampere 数据流：HBM2e → L2 → shared memory → 寄存器 → Tensor Core → 寄存器 → HBM2e](https://img.voidindex.net/posts/nvidia-gpu-architectures/ba5f269fd60ee958.svg)
 
-- **1 → 2 读入**：tile 从 HBM2e 读进 L2。
-- **2 → 3 `cp.async`**（本代新增）：数据从 L2 直接写进 shared memory，不经过寄存器，还可以绕过 L1。线程发出指令后不用等待，可以继续计算。
-- **3 → 4 `ldmatrix`**（本代新增）：一条指令把 shared memory 里的矩阵块按 Tensor Core 需要的布局，装进整个 warp 的寄存器。
-- **4 → 5 `mma.sync`**：寄存器里的片段交给 Tensor Core 做矩阵乘，和 Volta 相同。
-- **5 → 6 累加**：结果累加到寄存器里的累加器。
-- **6 → 7 `st.global`**：算完后累加器写回 HBM2e。
+- **① → ② 读入**：tile 从 HBM2e 读进 L2。
+- **② → ③ `cp.async`**（本代新增）：数据从 L2 直接写进 shared memory，不经过寄存器，还可以绕过 L1。线程发出指令后不用等待，可以继续计算。
+- **③ → ④ `ldmatrix`**（本代新增）：一条指令把 shared memory 里的矩阵块按 Tensor Core 需要的布局，装进整个 warp 的寄存器。
+- **④ → ⑤ `mma.sync`**：寄存器里的片段交给 Tensor Core 做矩阵乘，和 Volta 相同。
+- **⑤ → ⑥ 累加**：结果累加到寄存器里的累加器。
+- **⑥ → ⑦ `st.global`**：算完后累加器写回 HBM2e。
 - **多级流水**：shared memory 分成几个 stage。Tensor Core 在第 4–6 步计算第 k 块时，第 k+1、k+2 块正在走第 2–3 步，拷贝时间被计算掩盖。
 
 **关键变化**：
@@ -172,14 +172,14 @@ SM 改回 4 个处理块，每块 2 个 Tensor Core，每 SM 共 8 个。每个 
 
 **数据流**：
 
-![Hopper 数据流：HBM3 → L2 → shared memory → Tensor Core → 寄存器 → shared memory → HBM3](https://img.voidindex.net/posts/nvidia-gpu-architectures/79d54fa1846bee08.svg)
+![Hopper 数据流：HBM3 → L2 → shared memory → Tensor Core → 寄存器 → shared memory → HBM3](https://img.voidindex.net/posts/nvidia-gpu-architectures/4973f19712af75ea.svg)
 
-- **1 → 2 读入**：tile 从 HBM3 读进 L2。
-- **2 → 3 TMA 加载**（本代新增）：一个线程用 tensor map 描述整块 tile，地址计算和搬运都由 TMA 硬件完成，数据写进 shared memory，完成后通过 mbarrier 通知等待的线程。cluster 内几个 SM 需要同一块数据时，TMA 可以 multicast：从 L2 读一次，同时写进这几个 SM。
-- **3 → 4 `wgmma` 直接读**（本代新增）：4 个 warp（一个 warpgroup）一起发起矩阵乘，Tensor Core 直接从 shared memory 读操作数，不再需要先 `ldmatrix` 到寄存器。
-- **4 → 5 累加**：结果累加到寄存器里的累加器。`wgmma` 是异步的，常见写法是 producer warp 只发 TMA，consumer warpgroup 只做计算。
-- **5 → 6 `st.shared`**：算完后，累加器从寄存器写进 shared memory。
-- **6 → 7 TMA 写回**（本代新增）：TMA 把整块结果从 shared memory 写回 HBM3。
+- **① → ② 读入**：tile 从 HBM3 读进 L2。
+- **② → ③ TMA 加载**（本代新增）：一个线程用 tensor map 描述整块 tile，地址计算和搬运都由 TMA 硬件完成，数据写进 shared memory，完成后通过 mbarrier 通知等待的线程。cluster 内几个 SM 需要同一块数据时，TMA 可以 multicast：从 L2 读一次，同时写进这几个 SM。
+- **③ → ④ `wgmma` 直接读**（本代新增）：4 个 warp（一个 warpgroup）一起发起矩阵乘，Tensor Core 直接从 shared memory 读操作数，不再需要先 `ldmatrix` 到寄存器。
+- **④ → ⑤ 累加**：结果累加到寄存器里的累加器。`wgmma` 是异步的，常见写法是 producer warp 只发 TMA，consumer warpgroup 只做计算。
+- **⑤ → ⑥ `st.shared`**：算完后，累加器从寄存器写进 shared memory。
+- **⑥ → ⑦ TMA 写回**（本代新增）：TMA 把整块结果从 shared memory 写回 HBM3。
 
 **关键变化**：
 
@@ -198,15 +198,15 @@ SM 改回 4 个处理块，每块 2 个 Tensor Core，每 SM 共 8 个。每个 
 
 **数据流**：
 
-![Blackwell 数据流：HBM3e → L2 → shared memory → Tensor Core → tensor memory → 寄存器 → shared memory → HBM3e](https://img.voidindex.net/posts/nvidia-gpu-architectures/f2920ae162d59635.svg)
+![Blackwell 数据流：HBM3e → L2 → shared memory → Tensor Core → tensor memory → 寄存器 → shared memory → HBM3e](https://img.voidindex.net/posts/nvidia-gpu-architectures/be27fb909b1ecf45.svg)
 
-- **1 → 2 读入**：tile 从 HBM3e 读进 L2。另一颗 die 上的 HBM 数据经 NV-HBI 传过来，对软件透明。
-- **2 → 3 TMA 加载**：和 Hopper 相同，TMA 把整块 tile 写进 shared memory。
-- **3 → 4 `tcgen05.mma`**（本代新增）：一个线程就能发起矩阵乘，不再需要整个 warpgroup。Tensor Core 从 shared memory 读操作数，两个相邻 SM 还可以组成一对，共同完成一次更大的矩阵乘。
-- **4 → 5 累加**（本代新增）：结果累加到 tensor memory，不再占用寄存器。
-- **5 → 6 `tcgen05.ld`**（本代新增）：算完后把结果从 tensor memory 读进寄存器，在寄存器里做缩放、激活和精度转换（epilogue）。
-- **6 → 7 `st.shared`**：处理后的结果写进 shared memory。
-- **7 → 8 TMA 写回**：TMA 把整块结果写回 HBM3e。
+- **① → ② 读入**：tile 从 HBM3e 读进 L2。另一颗 die 上的 HBM 数据经 NV-HBI 传过来，对软件透明。
+- **② → ③ TMA 加载**：和 Hopper 相同，TMA 把整块 tile 写进 shared memory。
+- **③ → ④ `tcgen05.mma`**（本代新增）：一个线程就能发起矩阵乘，不再需要整个 warpgroup。Tensor Core 从 shared memory 读操作数，两个相邻 SM 还可以组成一对，共同完成一次更大的矩阵乘。
+- **④ → ⑤ 累加**（本代新增）：结果累加到 tensor memory，不再占用寄存器。
+- **⑤ → ⑥ `tcgen05.ld`**（本代新增）：算完后把结果从 tensor memory 读进寄存器，在寄存器里做缩放、激活和精度转换（epilogue）。
+- **⑥ → ⑦ `st.shared`**：处理后的结果写进 shared memory。
+- **⑦ → ⑧ TMA 写回**：TMA 把整块结果写回 HBM3e。
 
 **关键变化**：
 

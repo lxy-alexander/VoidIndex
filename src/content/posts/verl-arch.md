@@ -41,15 +41,15 @@ flowchart TB
     subgraph TRAIN["训练"]
         WG["FSDP Worker"]
     end
-    T -- "1 提交 prompt" --> AL
-    AL -- "2 生成请求" --> LS
-    LS -- "3 返回token" --> AL
-    AL -- "4 写入轨迹和奖励" --> TQ
-    RB -- "5 查询已完成的 key" --> TQ
-    RB -- "6 返回 key" --> T
-    T -- "7 只下发 key" --> WG
-    WG -- "8 取张量，算完写回" --> TQ
-    WG -- "9 同步新权重" --> LS
+    T -- "① 提交 prompt" --> AL
+    AL -- "② 生成请求" --> LS
+    LS -- "③ 返回token" --> AL
+    AL -- "④ 写入轨迹和奖励" --> TQ
+    RB -- "⑤ 查询已完成的 key" --> TQ
+    RB -- "⑥ 返回 key" --> T
+    T -- "⑦ 只下发 key" --> WG
+    WG -- "⑧ 取张量，算完写回" --> TQ
+    WG -- "⑨ 同步新权重" --> LS
     style CTRL fill:transparent
     style DATA fill:transparent
     style GEN fill:transparent
@@ -66,7 +66,7 @@ flowchart TB
 
 下面按默认的 `sync` 模式解释图中 9 个步骤，数值取自后文 GRPO 例子的第 1 步。
 
-- **1 提交 prompt**：控制器从 dataloader 取 64 个 prompt，给每个分配 uid，在 TQ 里登记为 `pending`，再平分给 8 个 `AgentLoopWorkerTQ`，每个 8 个。这个调用不等结果，马上返回。
+- **① 提交 prompt**：控制器从 dataloader 取 64 个 prompt，给每个分配 uid，在 TQ 里登记为 `pending`，再平分给 8 个 `AgentLoopWorkerTQ`，每个 8 个。这个调用不等结果，马上返回。
   - prompt：一道待回答的题目，这里是一道 GSM8K 数学题。
   - uid：每个 prompt 的唯一编号，后面用它把同一题的回答分到一组。
   - `AgentLoopWorkerTQ`：生成阶段的执行者，例子里有 8 个，每个收到 8 个 prompt。
@@ -95,7 +95,7 @@ flowchart TB
     - 写入 TQ：`_agent_loop_postprocess`（`agent_loop_tq.py:155`）拼好 `input_ids`、`rm_scores` 等字段，按 `<uid>_<i>_0` 写入。
     - 标记完成：5 条都写完后，`_run_prompt`（`agent_loop_tq.py:148`）把 prompt 标为 `finished`，`ReplayBuffer` 这时才能选中它。
 
-- **2 生成请求**：每个 prompt 起 5 个异步任务，共 64 × 5 = 320 条回答。每个任务把 prompt 转成 token，发给 4 个 vLLM 之一，temperature=1.0，最多生成 512 个 token。
+- **② 生成请求**：每个 prompt 起 5 个异步任务，共 64 × 5 = 320 条回答。每个任务把 prompt 转成 token，发给 4 个 vLLM 之一，temperature=1.0，最多生成 512 个 token。
   - `n=5`：同一道题生成 5 条回答，GRPO 要在这 5 条之间比较好坏。
   
   - temperature：采样的随机程度。logit 先除以 T 再做 softmax，T 越小分布越尖，越大越平。为 1.0 时 5 条回答才会各不相同。vLLM 里只有请求里设置了 `logprobs` 参数，才会额外计算被选中 token 的 logprob 并返回，默认不算。训练真正用的 logprob：生成结束后，actor 会用训练模型把 320 条回答重新跑一遍前向，自己计算 old log_prob；ref 模型也算一遍 ref log_prob。这两步一定会发生，PPO ratio 和 KL 都依赖它们。
@@ -154,11 +154,11 @@ flowchart TB
     - T验证用 0：greedy，结果稳定可复现。每题都选最有把握的回答，同一个模型每次测都得到同样的分数，不同步数之间可以直接比较。
     - actor 重算 old log_prob 时同样先执行 `logits.div_(temperature)`，否则 PPO ratio 会有偏差。
   
-- **3 返回 token**：vLLM 返回生成的 token 和 logprob。第 1 步平均每条回答 311 个 token，6%–15% 写满 512 个 token 被截断。
+- **③ 返回 token**：vLLM 返回生成的 token 和 logprob。第 1 步平均每条回答 311 个 token，6%–15% 写满 512 个 token 被截断。
   
   - logprob：模型生成这个 token 的对数概率。
   
-- **4 写入轨迹和奖励**：AgentLoop 先打分，答对得 1.0，否则 0，第 1 步 320 条（320 就是 64 × 5，这一步总共的回答条数）里只有 3 条得分。然后把结果写入 TQ，5 条都写完后，这个 prompt 的状态改为 `finished`。
+- **④ 写入轨迹和奖励**：AgentLoop 先打分，答对得 1.0，否则 0，第 1 步 320 条（320 就是 64 × 5，这一步总共的回答条数）里只有 3 条得分。然后把结果写入 TQ，5 条都写完后，这个 prompt 的状态改为 `finished`。
   
   - 轨迹：一次生成的完整记录，包括 prompt、回答、分数和 logprob。每条回答作为一条轨迹写入 TransferQueue，key 形如 `<uid>_<i>_0` 。
       -   `uid`：这道题的编号
@@ -166,10 +166,10 @@ flowchart TB
       -   `_0`：轨迹编号，单轮对话固定为 0
   - 轨迹里的 logprob 是 vLLM 返回的那份，而且可能根本没有。它不是 PPO 用的 old log_prob。之后由 FSDP 补进去：old log_prob、ref log_prob、advantage。
   
-- **5 查询已完成的 key**：`ReplayBuffer` 每 2 s 查询一次 TQ，直到 64 个 prompt 的 5 条回答都是 `finished`。
+- **⑤ 查询已完成的 key**：`ReplayBuffer` 每 2 s 查询一次 TQ，直到 64 个 prompt 的 5 条回答都是 `finished`。
   - 轮询：TQ 不会主动通知写完了，所以只能定时去查。
   
-- **6 返回 key**：`ReplayBuffer` 把 320 个 key 交给控制器，随后 vLLM 进入 sleep，把显存让给训练。
+- **⑥ 返回 key**：`ReplayBuffer` 把 320 个 key 交给控制器，随后 vLLM 进入 sleep，把显存让给训练。
   
   -   `ReplayBuffer` 不是一个独立的进程，而是控制器（`PPOTrainerSync`）里的一个 Python 对象。控制器调用 `replay_buffer.sample()`，函数返回 `KVBatchMeta`，整个过程不经过网络，也不搬运张量。
   
@@ -186,7 +186,7 @@ flowchart TB
   - `KVBatchMeta`：控制器拿到的 batch，只有 key 和 `seq_len` 这类标签，没有张量。
   - sleep：vLLM 进程不退出，只释放显存。共卡时训练和生成不能同时占满显存。
   
-- **7 只下发 key**：控制器按序列长度把 320 个 key 均衡分成 4 份，每卡 80 条，再调用 Worker 计算。
+- **⑦ 只下发 key**：控制器按序列长度把 320 个 key 均衡分成 4 份，每卡 80 条，再调用 Worker 计算。
   - 均衡分配：让每张卡的总 token 数接近，避免都在等最慢的卡。用的是 Karmarkar-Karp 算法（`verl/utils/seqlen_balancing.py` 的 `get_seqlen_balanced_partitions`），在每卡条数相同的前提下，先把最长的几条分到不同的卡，再用短的去填补差距。
 
     ```text
@@ -219,7 +219,7 @@ flowchart TB
     | mini-batch | 160 条（32 题 × 5），共 2 批 | 每批 `optimizer.step` 一次，数据用 2 次，ratio 不会偏离太远 | 影响训练效果，需要调参 |
     | micro-batch | 每卡 8 条，5 次累加 | 显存放不下全部，分批前向和反向，梯度累加后才更新 | 只影响速度和显存 |
   
-- **8 取张量，算完写回**：Worker 用 key 从 TQ 取回张量，依次算 old log_prob、ref log_prob，控制器算 GRPO 优势，最后 Worker 更新模型，共 2 次 `optimizer.step`。
+- **⑧ 取张量，算完写回**：Worker 用 key 从 TQ 取回张量，依次算 old log_prob、ref log_prob，控制器算 GRPO 优势，最后 Worker 更新模型，共 2 次 `optimizer.step`。
   
   -   从 TQ 取回张量：大张量由 FSDP Worker 自己取，控制器只取算优势用的分数和 uid，下发和返回的都只有 key。
   
@@ -234,7 +234,7 @@ flowchart TB
   - ref log_prob：冻结的参考模型算出的概率，用于 KL loss，防止模型偏离太远。
   - GRPO 优势：同一题的 5 条回答做组内归一化，比同组平均好的为正，差的为负。计算量很小，所以由控制器完成。
   
-- **9 同步新权重**：唤醒 vLLM 的权重显存，把新权重发过去，再恢复 KV cache，约 0.42 s。最后清掉 TQ 里的 320 个 key，回到第 1 步。
+- **⑨ 同步新权重**：唤醒 vLLM 的权重显存，把新权重发过去，再恢复 KV cache，约 0.42 s。最后清掉 TQ 里的 320 个 key，回到第 1 步。
   - 如何同步：每张卡上的 FSDP 把权重直接交给同卡的 vLLM，4 张卡同时进行。
   
     ```python

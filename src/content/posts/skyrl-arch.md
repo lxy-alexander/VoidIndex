@@ -44,15 +44,15 @@ flowchart TB
         WD["WorkerDispatch"]
         PW["Policy / Ref Worker × 4"]
     end
-    T -- "1 生成输入：320 条" --> G
-    G -- "2 POST /inference/v1/generate" --> R
-    R -- "3 分给 4 个 server" --> V
-    V -- "4 返回 token" --> G
-    G -- "5 env.step 打分" --> ENV
-    G -- "6 GeneratorOutput" --> T
-    T -- "7 ref / policy 前向" --> WD
-    WD -- "8 forward_backward + optim_step" --> PW
-    PW -- "9 同步新权重" --> V
+    T -- "① 生成输入：320 条" --> G
+    G -- "② POST /inference/v1/generate" --> R
+    R -- "③ 分给 4 个 server" --> V
+    V -- "④ 返回 token" --> G
+    G -- "⑤ env.step 打分" --> ENV
+    G -- "⑥ GeneratorOutput" --> T
+    T -- "⑦ ref / policy 前向" --> WD
+    WD -- "⑧ forward_backward + optim_step" --> PW
+    PW -- "⑨ 同步新权重" --> V
     style CTRL fill:transparent
     style GEN fill:transparent
     style INF fill:transparent
@@ -69,7 +69,7 @@ flowchart TB
 
 下面解释图中 9 个步骤，数值取自后文 GRPO 例子的第 1 步，耗时取第 2–9 步的中位数。
 
-- **1 生成输入：320 条**：控制器从 dataloader 取 64 个 prompt，每个重复 5 次，得到 320 条对话。同一个 prompt 的 5 条共用一个 uid，GRPO 后面按它分组。
+- **① 生成输入：320 条**：控制器从 dataloader 取 64 个 prompt，每个重复 5 次，得到 320 条对话。同一个 prompt 的 5 条共用一个 uid，GRPO 后面按它分组。
 
     - 每条还带上环境名 `gsm8k` 和标准答案，例如 `"72"`，环境打分时要用。
 
@@ -82,21 +82,21 @@ flowchart TB
         共 64 × 5 = 320 条
         ```
 
-- **2 POST /inference/v1/generate**：`generator.batched=true`，所以 `generate_batched` 先把 320 条对话一起套上 chat template、转成 token id，再一次性发给 vllm-router。
+- **② POST /inference/v1/generate**：`generator.batched=true`，所以 `generate_batched` 先把 320 条对话一起套上 chat template、转成 token id，再一次性发给 vllm-router。
 
     - token 进、token 出：请求里是 token id，返回的也是 token id，训练用的 token 和生成时的完全一致。
 
     - batched 和 agent_loop：`batched=true` 适合单轮任务，320 条一次发出；多轮任务要设成 false，走 `agent_loop`，每条轨迹自己循环"生成 → 环境 → 再生成"。
 
-- **3 分给 4 个 server**：router 把请求分给 4 个 `VLLMServerActor`，每卡一个。
+- **③ 分给 4 个 server**：router 把请求分给 4 个 `VLLMServerActor`，每卡一个。
 
     - `VLLMServerActor`：一个 Ray actor，里面跑 vLLM 的 `AsyncLLMEngine` 和一个 HTTP 服务，除了生成接口，还提供 sleep、wake_up 和权重传输接口。
 
     - 为什么共卡也走 HTTP：训练器只认一个 URL，后端换成外部推理服务、PD 分离都不用改训练代码。
 
-- **4 返回 token**：返回每条回答的 token id 和结束原因（`stop` 或 `length`）。第 1 步平均回答 325 个 token。
+- **④ 返回 token**：返回每条回答的 token id 和结束原因（`stop` 或 `length`）。第 1 步平均回答 325 个 token。
 
-- **5 env.step 打分**：每条回答交给一个 `GSM8kEnv`，调用 `step(回答)`。GSM8K 环境严格匹配 `#### 72` 格式，答对 1，否则 0。第 1 步平均奖励 0.0156，即 320 条里只有 5 条得分。
+- **⑤ env.step 打分**：每条回答交给一个 `GSM8kEnv`，调用 `step(回答)`。GSM8K 环境严格匹配 `#### 72` 格式，答对 1，否则 0。第 1 步平均奖励 0.0156，即 320 条里只有 5 条得分。
 
     - 环境：skyrl-gym 的接口和 Gymnasium 类似，`init(prompt)` 返回初始对话，`step(action)` 返回奖励、是否结束、下一条观察。GSM8K 是单轮任务，`step` 一次就结束。
 
@@ -109,7 +109,7 @@ flowchart TB
 
     - 起点接近 0：Qwen2.5-0.5B-Instruct 默认用 `\boxed{}` 或自然语言作答，不写 `####`，所以前几步主要在学格式。
 
-- **6 GeneratorOutput**：生成器返回 prompt token、response token、奖励和 loss mask。随后控制器让 vLLM sleep，把显存让给训练，再把 320 条拼成张量批。
+- **⑥ GeneratorOutput**：生成器返回 prompt token、response token、奖励和 loss mask。随后控制器让 vLLM sleep，把显存让给训练，再把 320 条拼成张量批。
 
     - 拼成张量：每条 "prompt + 回答" 作为一个整体左 padding，得到 `[320, 695]`，695 是这一批里最长的那条。
 
@@ -123,7 +123,7 @@ flowchart TB
 
     - sleep：vLLM 进程不退出，只释放权重和 KV cache 的显存。
 
-- **7 ref / policy 前向**：`WorkerDispatch` 把 320 条按 DP 切成 4 份，每卡 80 条，先算 ref logprob，再算 policy 的 old logprob，合计约 1.18 s。然后控制器自己算 GRPO 优势。
+- **⑦ ref / policy 前向**：`WorkerDispatch` 把 320 条按 DP 切成 4 份，每卡 80 条，先算 ref logprob，再算 policy 的 old logprob，合计约 1.18 s。然后控制器自己算 GRPO 优势。
 
     - `WorkerDispatch`：控制器和 Worker 之间的中间层，负责按 DP 切数据、调用 Worker，以及管理共卡模型的显存：要用哪个模型，就把它搬上 GPU，同卡上暂时不用的搬到 CPU。
 
@@ -151,7 +151,7 @@ flowchart TB
         优势 +1.789 → 每个 token 的值是 1.789 / 52,000
         ```
 
-- **8 forward_backward + optim_step**：每 32 个 prompt（160 条）为一个 mini-batch，一步 2 个 mini-batch，所以做 2 次 `optim_step`。每卡每个 mini-batch 40 条，按 micro-batch 8 分 5 次梯度累积，约 2.42 s。
+- **⑧ forward_backward + optim_step**：每 32 个 prompt（160 条）为一个 mini-batch，一步 2 个 mini-batch，所以做 2 次 `optim_step`。每卡每个 mini-batch 40 条，按 micro-batch 8 分 5 次梯度累积，约 2.42 s。
 
     - 320 条在后续计算中的划分：
 
@@ -164,7 +164,7 @@ flowchart TB
 
     - 整除要求：每卡每个 mini-batch 的条数（32 × 5 / 4 = 40）必须能被 micro-batch（8）整除，否则启动时报错。
 
-- **9 同步新权重**：先唤醒 vLLM 的权重显存，每张卡上的 FSDP2 Worker 拼出完整参数打包，通过 vLLM 原生的 weight-transfer 接口用 CUDA IPC 交给同卡的 server，再恢复 KV cache。整体约 0.36 s，纯传输约 0.25 s。
+- **⑨ 同步新权重**：先唤醒 vLLM 的权重显存，每张卡上的 FSDP2 Worker 拼出完整参数打包，通过 vLLM 原生的 weight-transfer 接口用 CUDA IPC 交给同卡的 server，再恢复 KV cache。整体约 0.36 s，纯传输约 0.25 s。
 
     - CUDA IPC：同一张卡上的两个进程共享一块显存。Worker 把显存地址做成一个小句柄交给 vLLM，vLLM 直接读这块显存，不经过 CPU。
 
