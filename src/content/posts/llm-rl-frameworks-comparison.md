@@ -9,7 +9,7 @@ draft: false
 ---
 
 > 基于同一台 4 × H100 NVL（94 GB）机器、同一天（2026-10-31）对 6 个仓库最新 commit 的源码阅读与实测。
-> 单个框架的详细文档（安装 / 接口 / 例子 / 架构图 / 时序图 / 带数值的源码走读）：[verl](/posts/verl-arch/) · [vime](/posts/vime-study-notes/)
+> 单个框架的详细文档（安装 / 接口 / 例子 / 架构图 / 时序图 / 带数值的源码走读）：[verl](/posts/verl-arch/) · [vime](/posts/vime-study-notes/) · [slime](/posts/slime-study-notes/) · [SkyRL](/posts/skyrl-study-notes/) · [prime-rl](/posts/prime-rl-study-notes/)
 
 | 框架 | commit / 日期 | 维护方 |
 |---|---|---|
