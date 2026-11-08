@@ -1,5 +1,5 @@
 ---
-title: "slime 入门笔记：跑通 GRPO，看懂一轮训练"
+title: "slime 入门：跑通 GRPO，看懂一轮训练"
 description: 面向刚接触 slime 的读者：安装、启动一个 GRPO 例子，再带入真实数值看懂 train.py 的一轮训练。
 pubDatetime: 2026-11-08T08:30:00Z
 tags:

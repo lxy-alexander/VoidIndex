@@ -1,5 +1,5 @@
 ---
-title: "verl 入门笔记：跑通 GRPO，看懂一步训练"
+title: "verl 入门：跑通 GRPO，看懂一步训练"
 description: 面向刚接触 verl 的读者：安装、启动一个 GRPO 例子，再带入真实数值看懂 V1 Trainer 的一步训练。
 pubDatetime: 2026-11-07T16:33:21Z
 tags:

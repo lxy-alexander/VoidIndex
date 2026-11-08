@@ -1,5 +1,5 @@
 ---
-title: "SkyRL 入门笔记：跑通 GRPO，看懂一步训练"
+title: "SkyRL 入门：跑通 GRPO，看懂一步训练"
 description: 面向刚接触 SkyRL 的读者：安装、启动一个 GSM8K 的 GRPO 例子，再带入真实数值看懂 RayPPOTrainer 的一步训练。
 pubDatetime: 2026-11-08T09:30:00Z
 tags:
@@ -13,7 +13,7 @@ draft: false
 
 > 代码版本：`SkyRL@50cfa014`（2026-10-30）。运行环境：4 × H100 NVL 94GB，`uv sync --extra fsdp` 装出的 `torch 2.13.0`（cu130）、`vllm 0.32.0`、`flash-attn 2.8.3`、`ray 2.57.0`、`vllm-router`。文中数值都来自本机跑通的 GRPO 例子，代码行号对应上述 commit。
 
-## SkyRL Overview
+## 架构
 
 SkyRL 是 Berkeley Sky Computing Lab（NovaSky）开源的大模型强化学习库，面向 Agent 设计：同一个训练器既能跑单轮数学题，也能跑多轮 SQL、SWE agent。它把"生成"和"环境"做成独立的模块，奖励由 skyrl-gym 环境的 `step()` 给出。
 

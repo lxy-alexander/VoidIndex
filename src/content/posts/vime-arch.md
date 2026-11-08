@@ -1,5 +1,5 @@
 ---
-title: "vime 入门笔记：跑通 GRPO，看懂一轮训练"
+title: "vime 入门：跑通 GRPO，看懂一轮训练"
 description: 面向刚接触 vime 的读者：安装、启动一个 GRPO 例子，再带入真实数值看懂 train.py 的一轮训练。
 pubDatetime: 2026-11-08T08:00:00Z
 tags:
@@ -13,7 +13,7 @@ draft: false
 
 > 代码版本：`vime@d7e40fe8`（2026-10-14，0.3.x）。运行环境：4 × H100 NVL 94GB，官方镜像 `vllm/vime:slime-58b0878679de-vime-4ad3486cb740`（转成 Apptainer SIF），内含 `vllm 0.31.1rc1.dev23`（打了 vime 的补丁）、`torch 2.13.0+cu130`、Megatron-LM。文中数值都来自本机跑通的 GRPO 例子，代码行号对应上述 commit。
 
-## vime Overview
+## 架构
 
 vime 是 vLLM 社区维护的大模型强化学习框架，从 slime 派生而来：训练用 Megatron，生成用 vLLM。它和 slime 的主循环几乎逐行相同，区别集中在推理那一侧。
 

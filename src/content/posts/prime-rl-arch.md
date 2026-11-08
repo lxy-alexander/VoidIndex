@@ -1,5 +1,5 @@
 ---
-title: "prime-rl 入门笔记：跑通异步 RL，看懂一步训练"
+title: "prime-rl 入门：跑通异步 RL，看懂一步训练"
 description: 面向刚接触 prime-rl 的读者：安装、启动 reverse-text 的 GRPO 例子，再带入真实数值看懂 orchestrator、vLLM 和 trainer 怎么流水线式地完成一步训练。
 pubDatetime: 2026-11-08T09:00:00Z
 tags:
@@ -13,7 +13,7 @@ draft: false
 
 > 代码版本：`prime-rl@a566e5d8`（2026-10-29，0.10.0）。运行环境：4 × H100 NVL 94GB，`uv sync --all-extras` 装出的 `torch 2.13`（cu130）、`vllm 0.32`、`flash-attn 2.8.3`、`transformers 5.19`。文中数值都来自本机跑通的 reverse-text 例子，代码行号对应上述 commit。
 
-## prime-rl Overview
+## 架构
 
 prime-rl 是 Prime Intellect 开源的大模型强化学习框架，INTELLECT-2/3 都用它训练。它和 verl、slime 最大的不同是：**没有 Ray，也没有一个总控制器**，推理和训练放在不同的卡上，异步地同时运行。
 
