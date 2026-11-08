@@ -68,10 +68,17 @@
       th,
       td {
         @apply border-border border p-2;
+        /* Keep columns readable; a wide table scrolls instead of squeezing
+           every column down to one character per line. */
+        min-width: 6em;
       }
 
       th {
-        @apply py-1.5;
+        @apply py-1.5 whitespace-nowrap;
+      }
+
+      td code {
+        @apply whitespace-nowrap;
       }
 
       th[align="center"],
@@ -113,6 +120,29 @@
     pre {
       @apply focus-visible:outline-accent focus-visible:border-transparent focus-visible:outline-2 focus-visible:outline-dashed;
     }
+  }
+
+  /* ===== Visible sideways scrollbars for wide tables and code ===== */
+  /* macOS hides overlay scrollbars until you scroll. Styling them with
+     ::-webkit-scrollbar makes Chrome and Safari draw a bar that is always
+     shown; that only works while scrollbar-color/width stay "auto". */
+  .app-prose table,
+  .app-prose pre {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  .app-prose table::-webkit-scrollbar,
+  .app-prose pre::-webkit-scrollbar {
+    height: 8px;
+  }
+  .app-prose table::-webkit-scrollbar-track,
+  .app-prose pre::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .app-prose table::-webkit-scrollbar-thumb,
+  .app-prose pre::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--color-foreground) 35%, transparent);
   }
 
   /* ===== Code Blocks & Syntax Highlighting ===== */
