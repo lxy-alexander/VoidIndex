@@ -1,11 +1,11 @@
 ---
 title: "NeMo RL 入门笔记：跑通 GRPO，看懂一步训练"
 description: 面向刚接触 NeMo RL 的读者：安装、在单张 A40 上跑通官方 grpo_math_1B 例子，再带入真实数值看懂单控制器、vLLM 和 Automodel Worker 怎么共用一张卡完成一步训练。
-pubDatetime: 2026-11-08T09:30:00Z
+pubDatetime: 2026-11-08T21:59:05Z
 tags:
   - rl
   - nemo-rl
-  draft: false
+draft: false
 ---
 
 > 代码版本：`RL@31c9a494`（2026-11-04，`package_info.py` 里是 0.8.0）。运行环境：1 × A40 46GB（Slurm 只分到这一张卡），NGC 镜像 `nvcr.io/nvidia/nemo-rl:v0.7.0` 提供系统库，Python 包按仓库的 `uv.lock` 装：`torch 2.13.0+cu130`、`vllm 0.29.0`、`nemo_automodel 0.6.1`、`transformers 5.12.1`、`flash-attn 2.8.1`、`ray 2.58.0`。文中数值都来自本机跑通的例子，代码行号对应上述 commit。

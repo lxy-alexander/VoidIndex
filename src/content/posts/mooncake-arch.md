@@ -1,11 +1,11 @@
 ---
 title: "Mooncake 入门笔记：跑通 Store，看懂一次 put 和 get"
 description: 面向刚接触 Mooncake 的读者：不用 sudo 从源码安装，在一台机器上起 Master、存储进程和读写进程，对比 TCP 和 RDMA，再带入真实数值看懂一次 put 和 get 怎么经过 Master 和 Transfer Engine。
-pubDatetime: 2026-11-08T10:30:00Z
+pubDatetime: 2026-11-08T21:59:05Z
 tags:
   - inference
   - mooncake
-    draft: false
+draft: false
 ---
 
 > 代码版本：`Mooncake@b19b2e97`（2026-11-07，`mooncake_master --version` 显示 0.3.14）。运行环境：ghpc005 单机，CPU 内存，一张 `mlx5_0` InfiniBand 网卡（400 Gb/s NDR），本作业分到 8 个 CPU；Mooncake 在 conda 环境 `mksrc` 里从源码编译安装。文中数值都来自本机跑通的例子，代码行号对应上述 commit。

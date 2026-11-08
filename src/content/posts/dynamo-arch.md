@@ -1,11 +1,11 @@
 ---
 title: "Dynamo 入门笔记：跑通 KV 路由，看懂一次请求"
 description: 面向刚接触 Dynamo 的读者：从源码安装，在一张 A40 上起 1 个 Frontend 和 2 个 vLLM Worker，对比 KV 路由和轮询，再带入真实数值看懂一次请求怎么被分词、打分、转发和回流 KV 事件。
-pubDatetime: 2026-11-08T10:00:00Z
+pubDatetime: 2026-11-08T21:59:05Z
 tags:
   - inference
   - dynamo
-    draft: false
+draft: false
 ---
 
 >   代码版本：`dynamo@27f6052c`（2026-11-08，`pyproject.toml` 里是 1.7.0）。运行环境：1 × A40 46GB（Slurm 只分到这一张卡，两个 Worker 共用），从源码装的 `ai-dynamo 1.7.0` / `ai-dynamo-runtime 1.7.0`（`maturin develop --release`），`vllm 0.33.0`、`torch 2.14.0`、`flashinfer 0.7.2.post1`、`nixl 1.5.0`。文中数值都来自本机跑通的例子，代码行号对应上述 commit。
