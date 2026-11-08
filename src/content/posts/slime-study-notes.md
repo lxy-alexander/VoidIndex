@@ -1372,4 +1372,4 @@ if should_run_periodic_action(rollout_id, args.eval_interval, num_rollout_per_ep
 2. fully-async：`--rollout-function-path slime.rollout.fully_async_rollout.generate_rollout_fully_async`，后台持续生成，多出来的组留给下一轮。注意第 1 轮先完成的都是短回答，奖励偏高。
 3. 写自己的奖励：`--custom-rm-path xx.rm`，函数签名是 `async def rm(args, sample) -> float`。多轮 agent 用 `--custom-generate-function-path`。
 4. 对比 vLLM 版：[vime 入门笔记](/posts/vime-study-notes/) 用完全相同的超参，可以直接比较两个推理后端。
-5. 对比其他框架：[框架对比](/posts/llm-rl-frameworks-comparison/)。
+5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。

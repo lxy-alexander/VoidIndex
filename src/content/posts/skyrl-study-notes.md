@@ -1136,4 +1136,4 @@ await self._inference_engine_client.wake_up(tags=["kv_cache"])  # 恢复 KV cach
 2. 换成 PPO：`advantage_estimator=gae` 并设置 `trainer.critic.model.path`，对比 critic 的作用。稀疏、起点为 0 的奖励下，组内对比（GRPO）比 critic 基线更有效。
 3. fully-async：`examples/train/fully_async/main_fully_async.py`，2 卡训练 + 2 卡生成，`max_staleness_steps` 控制生成最多领先几个版本。
 4. 写自己的环境：继承 `skyrl_gym.envs.base_text_env.BaseTextEnv`，实现 `init` 和 `step`，用 `skyrl_gym.register` 注册，数据里写 `env_class`。
-5. 对比其他框架：[框架对比](/posts/llm-rl-frameworks-comparison/)。
+5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。

@@ -1378,4 +1378,4 @@ if should_run_periodic_action(rollout_id, args.eval_interval, num_rollout_per_ep
 2. fully-async：`--rollout-function-path vime.rollout.fully_async_rollout.generate_rollout_fully_async`，看后台生成怎么跨轮次进行。
 3. 写自己的奖励：`--custom-rm-path xx.rm`，函数签名是 `async def rm(args, sample) -> float`。
 4. 对比 SGLang 版：[slime 入门笔记](/posts/slime-study-notes/) 用完全相同的超参，可以直接比较两个推理后端。
-5. 对比其他框架：[框架对比](/posts/llm-rl-frameworks-comparison/)。
+5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。

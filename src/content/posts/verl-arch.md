@@ -1378,4 +1378,4 @@ self.global_steps += 1  # 进入下一步
 1. 换成 PPO：把 `adv_estimator` 改成 `gae`，对比 critic 的作用。
 2. 试 `colocate_async` 和 `separate_async`，看生成和训练怎么重叠。
 3. 写自己的奖励：`reward.custom_reward_function.path=xx.py`，函数签名是 `compute_score(data_source, solution_str, ground_truth, extra_info)`。
-4. 对比其他框架：[框架对比](/posts/llm-rl-frameworks-comparison/)。
+4. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。

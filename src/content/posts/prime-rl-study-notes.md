@@ -1139,4 +1139,4 @@ self.update_dispatch_gate()  # on_policy_update：版本号变了，lead 变小�
 2. 先做 SFT：`sft @ examples/basic/reverse-text/sft.toml`，100 步后奖励 0.72，再接上面的 RL。
 3. 写自己的环境：在 verifiers 里写 `Taskset` + `Task`，用 `@vf.reward` 定义奖励、`@vf.stop` 定义停止条件，加进 workspace 后 `--package` 安装。
 4. 写自己的算法：在 `orchestrator/algo/` 下继承 `Algorithm`，实现 `score_group(episodes)`。
-5. 对比其他框架：[框架对比](/posts/llm-rl-frameworks-comparison/)。
+5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。
