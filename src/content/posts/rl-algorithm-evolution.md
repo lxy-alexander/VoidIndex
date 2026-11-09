@@ -11,7 +11,6 @@ draft: true
 强化学习算法沿两条线演进：值函数线（DQN 系列）和策略梯度线（REINFORCE → PPO → GRPO）。2026 年最常用的是面向 LLM 推理的、不需要 critic 的 GRPO 系列。
 
 <br>
-<br>
 
 ## 时间线
 
@@ -114,7 +113,6 @@ flowchart LR
 - 改进 ⑩ GRPO：把 token 级的重要性比率和 clip 换成序列级，降低方差。
 - 和 ⑪ DAPO 是 GRPO 之后两条并行的改进方向。
 
-<br>
 <br>
 
 ## PPO
@@ -416,7 +414,6 @@ clip 的作用：即使“从左算”明显是错的，这一轮也最多把它
 上面这道题的两个回答，就是这一批数据里的两条。
 
 <br>
-<br>
 
 ## GRPO
 
@@ -667,7 +664,6 @@ logp, ref ──► kl ───────────────────
 
 先对每个回答内的 token 求平均，长回答里每个 token 的权重就更小。DAPO 改成对整批 token 统一求平均来解决这个问题。
 
-<br>
 <br>
 
 ## References
