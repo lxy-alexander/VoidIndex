@@ -1,5 +1,5 @@
 ---
-title: "Mooncake 入门笔记：跑通 Store，看懂一次 put 和 get"
+title: "Mooncake 入门笔：跑通 Store，看懂一次 put 和 get"
 description: 面向刚接触 Mooncake 的读者：不用 sudo 从源码安装，在一台机器上起 Master、存储进程和读写进程，对比 TCP 和 RDMA，再带入真实数值看懂一次 put 和 get 怎么经过 Master 和 Transfer Engine。
 pubDatetime: 2026-11-08T21:59:05Z
 tags:
@@ -10,7 +10,7 @@ draft: false
 
 > 代码版本：`Mooncake@b19b2e97`（2026-11-07，`mooncake_master --version` 显示 0.3.14）。运行环境：ghpc005 单机，CPU 内存，一张 `mlx5_0` InfiniBand 网卡（400 Gb/s NDR），本作业分到 8 个 CPU；Mooncake 在 conda 环境 `mksrc` 里从源码编译安装。文中数值都来自本机跑通的例子，代码行号对应上述 commit。
 
-## Mooncake Overview
+## 总览
 
 Mooncake 是月之暗面开源的 KV cache 数据层，Kimi 的线上推理用它在 GPU 进程之间搬运和保存 KV cache。它不跑模型，也不调度请求：vLLM、SGLang、各家 RL 框架调用它来存、取、搬张量。
 
@@ -116,7 +116,7 @@ flowchart TB
 <br />
 <br />
 
-## 代码在哪里
+## 代码结构
 
 ```text
 Mooncake/
@@ -136,197 +136,6 @@ Mooncake/
 ├── mooncake-wheel/、python/              # Python 包
 └── docs/source/                          # 文档
 ```
-
-<br />
-<br />
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/kvcache-ai/Mooncake.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main        # 未提交的改动自动收起，做完再放回
-git submodule update --init --recursive     # extern/pybind11
-```
-
-- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
-
-### 安装
-
-只用、不改代码时，装 PyPI 的 wheel 就够了：
-
-```bash
-pip install mooncake-transfer-engine          # CUDA ≤ 12.9
-pip install mooncake-transfer-engine-cuda13   # CUDA 13
-```
-
-要改代码就从源码装。官方流程是 `sudo bash dependencies.sh` 装系统包，再 `cmake .. && make -j && sudo make install`。本机没有 sudo，把 `dependencies.sh` 里的每个系统包换成 conda-forge 的包，装进 conda 环境 `mksrc`，再用 `pip install .` 编译安装 Python 包：
-
-```bash
-# 1. 建环境（只需第一次）：编译器和全部 C++ 依赖都来自 conda-forge
-conda create -y -n mksrc python=3.12 numpy pip \
-    gcc=13 gxx=13 gcc_linux-64=13 gxx_linux-64=13 \
-    cmake ninja ccache pkg-config make patchelf \
-    rdma-core libnuma glog gflags jsoncpp libunwind libboost-devel openssl libcurl \
-    yaml-cpp libhiredis liburing jemalloc msgpack-cxx zeromq cppzmq zstd asio xxhash \
-    cli11 elfutils "go>=1.26=nocgo_*" rust etcd scikit-build-core pybind11 \
-    aiohttp msgpack-python requests pytest pyzmq
-conda activate mksrc
-
-# 2. 编译安装 Python 包（scikit-build-core 调 CMake）
-cd ~/lxy/Mooncake
-CMAKE_BUILD_PARALLEL_LEVEL=8 pip install --no-build-isolation -v . \
-    -Ccmake.define.USE_CUDA=ON -Ccmake.define.USE_HTTP=ON -Ccmake.define.USE_CXL=ON \
-    -Ccmake.define.USE_ETCD=ON -Ccmake.define.STORE_USE_ETCD=ON -Ccmake.define.WITH_CONDUCTOR=ON \
-    -Ccmake.define.CMAKE_CUDA_HOST_COMPILER=$CXX \
-    -Ccmake.define.CMAKE_C_COMPILER_LAUNCHER=ccache -Ccmake.define.CMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -Ccmake.define.CMAKE_CUDA_COMPILER_LAUNCHER=ccache
-```
-
-- `--no-build-isolation`：用环境里 conda 装好的 scikit-build-core 和 pybind11，不从 PyPI 下载。
-- `-Ccmake.define.USE_CUDA=ON`：`pyproject.toml` 里默认 `USE_CUDA = false`，不传就装出 CPU 版。
-- 构建目录固定在 `build/python/cp312-cp312-linux_x86_64`，再装一次是增量编译：这次从 `e60f941b` 更新到 `b19b2e97` 后重装用了 7 分 28 秒（8 个 CPU）。
-- 装好后 `$CONDA_PREFIX/bin` 里有 `mooncake_master`、`mooncake_client`、`transfer_engine_bench`。
-- conda 环境的完整配置（还要设几个环境变量，绕过几个写死路径的编译脚本）和 C++ 单测的跑法，见本机的环境搭建笔记（VoidIndex 草稿 `inference-oss-env-setup.md` 第 4 章）。
-
-### 检查安装
-
-```bash
-mooncake_master --version
-# mooncake_master version 0.3.14 (git: b19b2e97)
-python -c "import mooncake.store, mooncake.engine; print(mooncake.store.__file__)"
-# .../envs/mksrc/lib/python3.12/site-packages/mooncake/store/__init__.py
-```
-
-- 版本号不一致：`pip show` 显示 0.3.12.post1，这是 `pyproject.toml` 里写死的；`mooncake_master --version` 的 0.3.14 来自 git。
-
-<br />
-<br />
-
-# 提PR
-
-<br />
-<br />
-
-## 提 PR 流程
-
-规则以官方的 `CONTRIBUTING.md` 和 `.github/pull_request_template.md` 为准。
-
-### 1. 建分支
-
-```bash
-git fetch upstream
-git checkout -b fix/<主题> upstream/main
-```
-
-动手前先查重：
-
-```text
-https://github.com/kvcache-ai/Mooncake/pulls?q=is%3Apr+<关键词>
-```
-
-超过 500 行的架构改动（不算 kernel、数据、配置、测试）要先开 issue 写 RFC，否则 PR 会被打上 `rfc-required`，可能不会被 review。
-
-### 2. 测试
-
-```bash
-pip install -r requirements.txt && pre-commit install    # 只需第一次
-pre-commit run --files <改动的文件>                       # clang-format、ruff、codespell、cmake-format 等
-./scripts/code_format.sh --staged                         # 只格式化暂存的 C/C++ 改动
-
-cd build && ctest -R <相关测试> --output-on-failure        # C++ 单测（先 cmake -B build ... -DBUILD_UNIT_TESTS=ON 编过）
-python -m pytest <相关的 Python 测试>
-```
-
-- 改了 Store-RS：pre-commit 还会跑 `cargo fmt` 和 `cargo clippy`。
-- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
-
-### 3. 提交
-
-```bash
-git add <文件>
-git commit -s -m "[Store] fix lease expiry during batch get"   # -s 加 DCO 的 Signed-off-by
-git push -u origin fix/<主题>
-```
-
-- 标题前缀：`[Bugfix]`、`[CI/Build]`、`[Doc]`、`[Store]`、`[TransferEngine]`、`[Integration]`、`[Conductor]`、`[P2PStore]`、`[Misc]`；历史上也常用 `[TE]`、`[TENT]`、`[EP]`、`[PG]`、`[Wheel]`。
-- DCO：每个提交都要有和提交者一致的 `Signed-off-by`，DCO Check 工作流会逐个检查。`git commit -S` 的签名不能代替它。
-- 忘了签：最近一次还没推送的提交用 `git commit --amend -s --no-edit` 补上。
-
-### 4. 开 PR
-
-目标选 `kvcache-ai/Mooncake:main`，正文照模板的各节写：
-
-```markdown
-## Description
-
-<问题是什么、怎么修。Fixes #<issue>>
-
-## Suggested Merge Priority
-
-- [x] P2 — Normal
-
-## Module
-
-- [x] Mooncake Store (`mooncake-store`)
-
-## Type of Change
-
-- [x] Bug fix
-
-## How Has This Been Tested?
-
-**Test commands:**
-<命令>
-
-**Test results:**
-- [x] Unit tests pass
-
-## Checklist
-
-- [x] Every commit I contribute includes my `Signed-off-by` trailer certifying the DCO
-- [x] I have performed a self-review of my own code
-- [x] I have formatted my code using `./scripts/code_format.sh`
-- [x] I have run pre-commit on the files changed in this PR and all hooks pass
-- [x] I have added tests to prove my changes are effective
-
-## AI Assistance Disclosure
-
-- [x] AI tools were used (specify below)
-```
-
-- 优先级：默认 P2，P0/P1 要在描述里说明影响和紧急程度，最终由维护者定。
-- AI 协助：模板要求声明，提交的人要能解释和维护所有改动。
-- 大小标签：按增删行数自动打 `size/S`（<100）、`size/M`、`size/L`（>1000）。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review**
-
-```bash
-git checkout fix/<主题>
-# 修改代码
-pre-commit run --files <改动的文件>
-git add <文件>
-git commit -s -m "[Store] address review comments"
-git push
-```
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main      # 保留每个提交的 Signed-off-by
-git push --force-with-lease
-```
-
-- 有冲突：编辑冲突文件，`git add <文件>`，再 `git rebase --continue`。
-- 想放弃：`git rebase --abort`。
 
 <br />
 <br />
@@ -808,3 +617,194 @@ err = TransferRead(replica, slices);  // 和 S8 同样选策略，op_code = READ
 2. 试 `batch_put_from` / `batch_get_into`，看小对象的吞吐能提高多少。
 3. 在 RL 里用：NeMo RL 打开 `data_plane.enabled=true` 并选 `backend: mooncake_cpu`，rollout 数据就存进 Mooncake Store，见 [NeMo RL 入门笔记](09_nemo-rl.md)。
 4. 和 vLLM、SGLang 配合做 KV cache 共享，见 [Dynamo 入门笔记](10_dynamo.md) 里的 KV 路由部分。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/kvcache-ai/Mooncake.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main        # 未提交的改动自动收起，做完再放回
+git submodule update --init --recursive     # extern/pybind11
+```
+
+- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
+
+### 安装
+
+只用、不改代码时，装 PyPI 的 wheel 就够了：
+
+```bash
+pip install mooncake-transfer-engine          # CUDA ≤ 12.9
+pip install mooncake-transfer-engine-cuda13   # CUDA 13
+```
+
+要改代码就从源码装。官方流程是 `sudo bash dependencies.sh` 装系统包，再 `cmake .. && make -j && sudo make install`。本机没有 sudo，把 `dependencies.sh` 里的每个系统包换成 conda-forge 的包，装进 conda 环境 `mksrc`，再用 `pip install .` 编译安装 Python 包：
+
+```bash
+# 1. 建环境（只需第一次）：编译器和全部 C++ 依赖都来自 conda-forge
+conda create -y -n mksrc python=3.12 numpy pip \
+    gcc=13 gxx=13 gcc_linux-64=13 gxx_linux-64=13 \
+    cmake ninja ccache pkg-config make patchelf \
+    rdma-core libnuma glog gflags jsoncpp libunwind libboost-devel openssl libcurl \
+    yaml-cpp libhiredis liburing jemalloc msgpack-cxx zeromq cppzmq zstd asio xxhash \
+    cli11 elfutils "go>=1.26=nocgo_*" rust etcd scikit-build-core pybind11 \
+    aiohttp msgpack-python requests pytest pyzmq
+conda activate mksrc
+
+# 2. 编译安装 Python 包（scikit-build-core 调 CMake）
+cd ~/lxy/Mooncake
+CMAKE_BUILD_PARALLEL_LEVEL=8 pip install --no-build-isolation -v . \
+    -Ccmake.define.USE_CUDA=ON -Ccmake.define.USE_HTTP=ON -Ccmake.define.USE_CXL=ON \
+    -Ccmake.define.USE_ETCD=ON -Ccmake.define.STORE_USE_ETCD=ON -Ccmake.define.WITH_CONDUCTOR=ON \
+    -Ccmake.define.CMAKE_CUDA_HOST_COMPILER=$CXX \
+    -Ccmake.define.CMAKE_C_COMPILER_LAUNCHER=ccache -Ccmake.define.CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -Ccmake.define.CMAKE_CUDA_COMPILER_LAUNCHER=ccache
+```
+
+- `--no-build-isolation`：用环境里 conda 装好的 scikit-build-core 和 pybind11，不从 PyPI 下载。
+- `-Ccmake.define.USE_CUDA=ON`：`pyproject.toml` 里默认 `USE_CUDA = false`，不传就装出 CPU 版。
+- 构建目录固定在 `build/python/cp312-cp312-linux_x86_64`，再装一次是增量编译：这次从 `e60f941b` 更新到 `b19b2e97` 后重装用了 7 分 28 秒（8 个 CPU）。
+- 装好后 `$CONDA_PREFIX/bin` 里有 `mooncake_master`、`mooncake_client`、`transfer_engine_bench`。
+- conda 环境的完整配置（还要设几个环境变量，绕过几个写死路径的编译脚本）和 C++ 单测的跑法，见本机的环境搭建笔记（VoidIndex 草稿 `inference-oss-env-setup.md` 第 4 章）。
+
+### 检查安装
+
+```bash
+mooncake_master --version
+# mooncake_master version 0.3.14 (git: b19b2e97)
+python -c "import mooncake.store, mooncake.engine; print(mooncake.store.__file__)"
+# .../envs/mksrc/lib/python3.12/site-packages/mooncake/store/__init__.py
+```
+
+- 版本号不一致：`pip show` 显示 0.3.12.post1，这是 `pyproject.toml` 里写死的；`mooncake_master --version` 的 0.3.14 来自 git。
+
+<br />
+<br />
+
+# 提PR
+
+<br />
+<br />
+
+## 提 PR 流程
+
+规则以官方的 `CONTRIBUTING.md` 和 `.github/pull_request_template.md` 为准。
+
+### 1. 建分支
+
+```bash
+git fetch upstream
+git checkout -b fix/<主题> upstream/main
+```
+
+动手前先查重：
+
+```text
+https://github.com/kvcache-ai/Mooncake/pulls?q=is%3Apr+<关键词>
+```
+
+超过 500 行的架构改动（不算 kernel、数据、配置、测试）要先开 issue 写 RFC，否则 PR 会被打上 `rfc-required`，可能不会被 review。
+
+### 2. 测试
+
+```bash
+pip install -r requirements.txt && pre-commit install    # 只需第一次
+pre-commit run --files <改动的文件>                       # clang-format、ruff、codespell、cmake-format 等
+./scripts/code_format.sh --staged                         # 只格式化暂存的 C/C++ 改动
+
+cd build && ctest -R <相关测试> --output-on-failure        # C++ 单测（先 cmake -B build ... -DBUILD_UNIT_TESTS=ON 编过）
+python -m pytest <相关的 Python 测试>
+```
+
+- 改了 Store-RS：pre-commit 还会跑 `cargo fmt` 和 `cargo clippy`。
+- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
+
+### 3. 提交
+
+```bash
+git add <文件>
+git commit -s -m "[Store] fix lease expiry during batch get"   # -s 加 DCO 的 Signed-off-by
+git push -u origin fix/<主题>
+```
+
+- 标题前缀：`[Bugfix]`、`[CI/Build]`、`[Doc]`、`[Store]`、`[TransferEngine]`、`[Integration]`、`[Conductor]`、`[P2PStore]`、`[Misc]`；历史上也常用 `[TE]`、`[TENT]`、`[EP]`、`[PG]`、`[Wheel]`。
+- DCO：每个提交都要有和提交者一致的 `Signed-off-by`，DCO Check 工作流会逐个检查。`git commit -S` 的签名不能代替它。
+- 忘了签：最近一次还没推送的提交用 `git commit --amend -s --no-edit` 补上。
+
+### 4. 开 PR
+
+目标选 `kvcache-ai/Mooncake:main`，正文照模板的各节写：
+
+```markdown
+## Description
+
+<问题是什么、怎么修。Fixes #<issue>>
+
+## Suggested Merge Priority
+
+- [x] P2 — Normal
+
+## Module
+
+- [x] Mooncake Store (`mooncake-store`)
+
+## Type of Change
+
+- [x] Bug fix
+
+## How Has This Been Tested?
+
+**Test commands:**
+<命令>
+
+**Test results:**
+- [x] Unit tests pass
+
+## Checklist
+
+- [x] Every commit I contribute includes my `Signed-off-by` trailer certifying the DCO
+- [x] I have performed a self-review of my own code
+- [x] I have formatted my code using `./scripts/code_format.sh`
+- [x] I have run pre-commit on the files changed in this PR and all hooks pass
+- [x] I have added tests to prove my changes are effective
+
+## AI Assistance Disclosure
+
+- [x] AI tools were used (specify below)
+```
+
+- 优先级：默认 P2，P0/P1 要在描述里说明影响和紧急程度，最终由维护者定。
+- AI 协助：模板要求声明，提交的人要能解释和维护所有改动。
+- 大小标签：按增删行数自动打 `size/S`（<100）、`size/M`、`size/L`（>1000）。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review**
+
+```bash
+git checkout fix/<主题>
+# 修改代码
+pre-commit run --files <改动的文件>
+git add <文件>
+git commit -s -m "[Store] address review comments"
+git push
+```
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main      # 保留每个提交的 Signed-off-by
+git push --force-with-lease
+```
+
+- 有冲突：编辑冲突文件，`git add <文件>`，再 `git rebase --continue`。
+- 想放弃：`git rebase --abort`。
+
+<br />
+<br />

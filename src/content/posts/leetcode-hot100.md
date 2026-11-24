@@ -8,9 +8,7 @@ tags:
 draft: false
 ---
 
-按 LeetCode「热题 100」学习计划的 17 个分类整理，共 100 题。全部分类已合并到本文件。每题包含：完整题目与示例（点标题右侧 🔗 跳转原题）、解法思路、复杂度、Python 代码。
-
-代码可直接粘贴到 LeetCode 提交。本地运行时需自行补充 `typing`、`collections`、`heapq`、`functools` 等 import，以及 `ListNode` / `TreeNode` 定义。
+# 分类表格
 
 | # | 分类 | 题数 | 核心思路 |
 |---|------|------|----------|
@@ -372,6 +370,7 @@ class Solution:
         for i in range(n - 2):
             if nums[i] > 0:
                 break
+            # 去重复 remove duplicates
             if i > 0 and nums[i] == nums[i - 1]:
                 continue
             l, r = i + 1, n - 1
@@ -480,14 +479,15 @@ class Solution:
 ```python
 class Solution:
     def lengthOfLongestSubstring(self, s: str) -> int:
-        last = {}
-        left = best = 0
+        ans = left = 0
+        cnt = defaultdict(int)  # 维护从下标 left 到下标 right 的字符及其出现次数
         for right, c in enumerate(s):
-            if c in last and last[c] >= left:
-                left = last[c] + 1
-            last[c] = right
-            best = max(best, right - left + 1)
-        return best
+            cnt[c] += 1
+            while cnt[c] > 1:  # 窗口内有重复字母
+                cnt[s[left]] -= 1  # 移除窗口左端点字母
+                left += 1  # 缩小窗口
+            ans = max(ans, right - left + 1)  # 更新窗口长度最大值
+        return ans
 ```
 
 <br>
@@ -526,20 +526,42 @@ class Solution:
 ```python
 class Solution:
     def findAnagrams(self, s: str, p: str) -> List[int]:
-        n, m = len(s), len(p)
-        if n < m:
-            return []
-        need, win = [0] * 26, [0] * 26
-        for c in p:
-            need[ord(c) - 97] += 1
-        res = []
-        for i in range(n):
-            win[ord(s[i]) - 97] += 1
-            if i >= m:
-                win[ord(s[i - m]) - 97] -= 1
-            if win == need:
-                res.append(i - m + 1)
-        return res
+        cnt_p = Counter(p)
+        cnt_s = Counter()
+        ans = []
+        l = 0
+
+        for r, c in enumerate(s):
+            cnt_s[c] += 1  # 右端点字母进入窗口
+
+            if r - l + 1 < len(p):  # 窗口长度不足 len(p)
+                continue
+
+            # 此时窗口 [l, r] 的长度恰好等于 len(p)
+            if cnt_s == cnt_p:
+                ans.append(l)
+
+            cnt_s[s[l]] -= 1  # 左端点字母离开窗口
+            l += 1
+
+        return ans
+
+class Solution:
+    def findAnagrams(self, s: str, p: str) -> List[int]:
+        cnt = Counter(p)  # 统计 p 的每种字母的出现次数
+        ans = []
+
+        left = 0
+        for right, c in enumerate(s):
+            cnt[c] -= 1  # 右端点字母进入窗口
+            while cnt[c] < 0:  # 字母 c 太多了
+                cnt[s[left]] += 1  # 左端点字母离开窗口
+                left += 1
+            if right - left + 1 == len(p):  # t 和 p 的每种字母的出现次数都相同（证明见上）
+                ans.append(left)  # t 左端点下标加入答案
+
+        return ans
+
 ```
 
 <br>
@@ -687,25 +709,20 @@ class Solution:
 ```python
 class Solution:
     def minWindow(self, s: str, t: str) -> str:
-        need = Counter(t)
-        missing = len(t)
-        left = start = 0
-        best = float("inf")
-        for right, c in enumerate(s):
-            if need[c] > 0:
-                missing -= 1
-            need[c] -= 1
-            if missing == 0:
-                while need[s[left]] < 0:
-                    need[s[left]] += 1
-                    left += 1
-                if right - left + 1 < best:
-                    best = right - left + 1
-                    start = left
-                need[s[left]] += 1
-                missing += 1
-                left += 1
-        return "" if best == float("inf") else s[start:start + best]
+        win = [0, 0]
+        mn = float('inf')
+        cnt1 = Counter(t)
+        cnt2 = defaultdict(int)
+        l = 0
+        for r, c in enumerate(s):
+            cnt2[c] += 1
+            while all(cnt2[x] >= cnt1[x] for x in cnt1):
+                if r - l + 1 < mn:
+                    mn = r - l + 1
+                    win = [l, r + 1]
+                cnt2[s[l]] -= 1
+                l += 1
+        return s[win[0]:win[1]]
 ```
 
 <br>
@@ -789,15 +806,15 @@ class Solution:
 
 ```python
 class Solution:
-    def merge(self, intervals: List[List[int]]) -> List[List[int]]:
+    def merge(self, intervals: list[list[int]]) -> list[list[int]]:
         intervals.sort(key=lambda x: x[0])
-        res = []
-        for s, e in intervals:
-            if res and s <= res[-1][1]:
-                res[-1][1] = max(res[-1][1], e)
-            else:
-                res.append([s, e])
-        return res
+        ans = []
+        for start, end in intervals:
+            if not ans or start > ans[-1][1]:
+                ans.append([start, end])
+            if end > ans[-1][1]:
+                ans[-1][1] = end
+        return ans
 ```
 
 <br>
@@ -979,24 +996,59 @@ class Solution:
 
 ```python
 class Solution:
-    def setZeroes(self, matrix: List[List[int]]) -> None:
+    def setZeroes(self, matrix: list[list[int]]) -> None:
+        """
+        Do not return anything, modify matrix in-place instead.
+        """
+        # ================= 解法一：额外数组标记，空间 O(m+n) =================
+        # m, n = len(matrix), len(matrix[0])
+        # rows = [False] * m          # rows[i] = True 表示第 i 行需要清零
+        # cols = [False] * n          # cols[j] = True 表示第 j 列需要清零
+        #
+        # # 第一遍：只记录，不修改（边扫边改会让新写入的 0 污染判断）
+        # for i in range(m):
+        #     for j in range(n):
+        #         if matrix[i][j] == 0:
+        #             rows[i] = True
+        #             cols[j] = True
+        #
+        # # 第二遍：所在行或列被标记过，就置 0
+        # for i in range(m):
+        #     for j in range(n):
+        #         if rows[i] or cols[j]:
+        #             matrix[i][j] = 0
+
+        # ================= 解法二：用第 0 行 / 第 0 列当标记，空间 O(1) =================
         m, n = len(matrix), len(matrix[0])
-        row0 = any(matrix[0][j] == 0 for j in range(n))
-        col0 = any(matrix[i][0] == 0 for i in range(m))
+
+        # 第 0 列和第 0 行接下来要被当成标记数组使用，会被覆盖，
+        # 所以先记下它们原本是否含 0。
+        rows = any(matrix[i][0] == 0 for i in range(m))  # 第 0 列原本是否有 0
+        cols = any(matrix[0][j] == 0 for j in range(n))  # 第 0 行原本是否有 0
+
+        # 第 1 步：扫描内部区域（不含第 0 行、第 0 列），把标记写到边上
         for i in range(1, m):
             for j in range(1, n):
                 if matrix[i][j] == 0:
-                    matrix[i][0] = matrix[0][j] = 0
+                    matrix[i][0] = 0   # 第 0 列的格子标记：第 i 行要清零
+                    matrix[0][j] = 0   # 第 0 行的格子标记：第 j 列要清零
+
+        # 第 2 步：根据边上的标记，清零内部区域
+        # 仍然从 1 开始，避免提前改动第 0 行/列，破坏标记
         for i in range(1, m):
             for j in range(1, n):
                 if matrix[i][0] == 0 or matrix[0][j] == 0:
                     matrix[i][j] = 0
-        if row0:
-            for j in range(n):
-                matrix[0][j] = 0
-        if col0:
+
+        # 第 3 步：最后处理第 0 列和第 0 行本身
+        # 必须放在最后，否则标记会被提前清掉，导致误判
+        if rows:                    # 第 0 列原本有 0 → 整列清零
             for i in range(m):
                 matrix[i][0] = 0
+
+        if cols:                    # 第 0 行原本有 0 → 整行清零
+            for j in range(n):
+                matrix[0][j] = 0
 ```
 
 <br>
@@ -1026,27 +1078,23 @@ class Solution:
 **复杂度**：时间 O(mn)，空间 O(1)（不计输出）。
 
 ```python
+DIRS = (0, 1), (1, 0), (0, -1), (-1, 0)  # 右下左上
+
 class Solution:
     def spiralOrder(self, matrix: List[List[int]]) -> List[int]:
-        top, bottom = 0, len(matrix) - 1
-        left, right = 0, len(matrix[0]) - 1
-        res = []
-        while top <= bottom and left <= right:
-            for j in range(left, right + 1):
-                res.append(matrix[top][j])
-            top += 1
-            for i in range(top, bottom + 1):
-                res.append(matrix[i][right])
-            right -= 1
-            if top <= bottom:
-                for j in range(right, left - 1, -1):
-                    res.append(matrix[bottom][j])
-                bottom -= 1
-            if left <= right:
-                for i in range(bottom, top - 1, -1):
-                    res.append(matrix[i][left])
-                left += 1
-        return res
+        m, n = len(matrix), len(matrix[0])
+        ans = []
+        i = j = di = 0
+        for _ in range(m * n):  # 一共走 mn 步
+            ans.append(matrix[i][j])
+            matrix[i][j] = None  # 标记，表示已经访问过（已经加入答案）
+            x, y = i + DIRS[di][0], j + DIRS[di][1]  # 下一步的位置
+            # 如果 (x, y) 出界或者已经访问过
+            if x < 0 or x >= m or y < 0 or y >= n or matrix[x][y] is None:
+                di = (di + 1) % 4  # 右转 90°
+            i += DIRS[di][0]
+            j += DIRS[di][1]  # 走一步
+        return ans
 ```
 
 <br>
@@ -1800,18 +1848,31 @@ class Solution:
 **复杂度**：时间 O(N log k)，空间 O(k)。
 
 ```python
+# Definition for singly-linked list.
+# class ListNode:
+#     def __init__(self, val=0, next=None):
+#         self.val = val
+#         self.next = next
 class Solution:
     def mergeKLists(self, lists: List[Optional[ListNode]]) -> Optional[ListNode]:
-        heap = [(node.val, i, node) for i, node in enumerate(lists) if node]
-        heapq.heapify(heap)
-        dummy = tail = ListNode()
+        heap = []
+
+        for i, node in enumerate(lists):
+            if node:
+                heapq.heappush(heap, (node.val, i, node))
+
+        dummy = ListNode()
+        cur = dummy
+        
         while heap:
-            _, i, node = heapq.heappop(heap)
-            tail.next = node
-            tail = node
+            val, i, node = heapq.heappop(heap)
+            cur.next = node
+            cur = node
             if node.next:
                 heapq.heappush(heap, (node.next.val, i, node.next))
+            
         return dummy.next
+
 ```
 
 <br>
@@ -3918,22 +3979,39 @@ class Solution:
 输出：4
 ```
 
-**解法**：快速选择，随机选 pivot 做三路划分，只进入答案所在的一侧。三路划分能避免大量重复值导致的退化。也可维护大小为 k 的小顶堆，时间 O(n log k)。
+**解法**：快速选择，随机选 pivot 做三路划分，只进入答案所在的一侧。三路划分能避免大量重复值导致的退化。也可维护大小为 k 的小顶堆，时间 O(n log k)。 **同一个函数不断接收更小的新问题，直到找到答案。**
 
 **复杂度**：平均时间 O(n)，空间 O(n)（此写法用了额外数组）。
 
 ```python
+import random
+from typing import List
+
 class Solution:
     def findKthLargest(self, nums: List[int], k: int) -> int:
         pivot = random.choice(nums)
-        big = [x for x in nums if x > pivot]
-        equal = [x for x in nums if x == pivot]
-        small = [x for x in nums if x < pivot]
+
+        big = []
+        equal = []
+        small = []
+
+        for x in nums:
+            if x > pivot:
+                big.append(x)
+            elif x == pivot:
+                equal.append(x)
+            else:
+                small.append(x)
+
         if k <= len(big):
             return self.findKthLargest(big, k)
+
         if k <= len(big) + len(equal):
             return pivot
-        return self.findKthLargest(small, k - len(big) - len(equal))
+
+        return self.findKthLargest(
+            small, k - len(big) - len(equal)
+        )
 ```
 
 <br>
@@ -3966,21 +4044,60 @@ class Solution:
 
 **复杂度**：时间 O(n)，空间 O(n)。
 
+The time complexity is \(O(n + m\log k)\) for the min-heap solution to LeetCode 347: Top K Frequent Elements.
+
+-   **n** = Total number of elements in `nums`
+-   **m** = Number of unique elements in `nums`
+-   **k** = Number of most frequent elements we want to find
+
 ```python
 class Solution:
     def topKFrequent(self, nums: List[int], k: int) -> List[int]:
-        count = Counter(nums)
-        buckets = [[] for _ in range(len(nums) + 1)]
-        for x, c in count.items():
-            buckets[c].append(x)
-        res = []
-        for c in range(len(nums), 0, -1):
-            for x in buckets[c]:
-                res.append(x)
-                if len(res) == k:
-                    return res
-        return res
+        cnt = Counter(nums)
+
+        heap = []
+        for num, freq in cnt.items():
+            heapq.heappush(heap, (freq, num))
+
+            if len(heap) > k:
+                heapq.heappop(heap)
+
+        ans = []
+        while heap:
+            _, num = heapq.heappop(heap)
+            ans.append(num)
+
+        return ans[::-1]
 ```
+
+This solution uses **Bucket Sort**.
+
+-   **Time Complexity:** \(O(n)\)
+-   **Space Complexity:** \(O(n)\)
+
+Here, `n = len(nums)` and `m` is the number of unique elements.
+
+```python
+class Solution:
+    def topKFrequent(self, nums: List[int], k: int) -> List[int]:
+        n = len(nums)
+        cnt = Counter(nums)
+        bucket = [[] for _ in range(n + 1)]
+
+        for x, freq in cnt.items():
+            bucket[freq].append(x)
+        
+        ans = []
+        for freq in range(n, 0, -1):
+            # The problem is that you check whether you've collected k elements before appending the current element.If the last element you need is also the last element encountered, your function will return [] instead of ans.
+            for x in bucket[freq]:
+                ans.append(x)
+                if len(ans) == k:
+                    return ans
+        return []
+```
+
+
 
 <br>
 
@@ -4965,7 +5082,47 @@ class Solution:
 输出：1
 ```
 
-**解法**：异或：`x ^ x = 0`，`x ^ 0 = x`，全部异或后只剩单独的数。
+**解法**：异或(Exclusive OR)：`x ^ x = 0`，`x ^ 0 = x`，全部异或后只剩单独的数。
+
+#### 1）逻辑运算符
+
+| 英文名称 | Python 写法     | 英文读音（IPA） | 中文意思 |
+| -------- | --------------- | --------------- | -------- |
+| AND      | `and`           | /ænd/           | 与       |
+| OR       | `or`            | /ɔːr/           | 或       |
+| NOT      | `not`           | /nɑːt/          | 非       |
+| XOR      | `^`             | /ˌeks ˈɔːr/     | 异或     |
+| NAND     | `not (a and b)` | /nænd/          | 与非     |
+| NOR      | `not (a or b)`  | /nɔːr/          | 或非     |
+| XNOR     | `not (a ^ b)`   | /ˌeks ˈnɔːr/    | 同或     |
+
+注意：`^` 在 Python 中是**按位异或**，常用于整数或布尔值。
+
+#### 2）Python 常见符号的英文读法
+
+| 符号 | 英文名称                          | 中文          |
+| ---- | --------------------------------- | ------------- |
+| `=`  | equals sign                       | 等号          |
+| `==` | double equals                     | 等于          |
+| `!=` | not equal to                      | 不等于        |
+| `>`  | greater than                      | 大于          |
+| `<`  | less than                         | 小于          |
+| `>=` | greater than or equal to          | 大于等于      |
+| `<=` | less than or equal to             | 小于等于      |
+| `+`  | plus                              | 加            |
+| `-`  | minus / dash                      | 减            |
+| `*`  | asterisk / times                  | 星号 / 乘     |
+| `/`  | slash / divided by                | 斜杠 / 除     |
+| `//` | double slash / floor division     | 整除          |
+| `%`  | percent / modulo                  | 百分号 / 取模 |
+| `**` | double asterisk / to the power of | 幂运算        |
+| `.`  | dot                               | 点            |
+| `:`  | colon                             | 冒号          |
+| `,`  | comma                             | 逗号          |
+| `_`  | underscore                        | 下划线        |
+| `()` | parentheses                       | 圆括号        |
+| `[]` | square brackets                   | 方括号        |
+| `{}` | curly braces                      | 花括号        |
 
 **复杂度**：时间 O(n)，空间 O(1)。
 

@@ -1,5 +1,5 @@
 ---
-title: "NeMo RL 入门笔记：跑通 GRPO，看懂一步训练"
+title: "NeMo RL 入门：跑通 GRPO，看懂一步训练"
 description: 面向刚接触 NeMo RL 的读者：安装、在单张 A40 上跑通官方 grpo_math_1B 例子，再带入真实数值看懂单控制器、vLLM 和 Automodel Worker 怎么共用一张卡完成一步训练。
 pubDatetime: 2026-11-08T21:59:05Z
 tags:
@@ -10,7 +10,7 @@ draft: false
 
 > 代码版本：`RL@31c9a494`（2026-11-04，`package_info.py` 里是 0.8.0）。运行环境：1 × A40 46GB（Slurm 只分到这一张卡），NGC 镜像 `nvcr.io/nvidia/nemo-rl:v0.7.0` 提供系统库，Python 包按仓库的 `uv.lock` 装：`torch 2.13.0+cu130`、`vllm 0.29.0`、`nemo_automodel 0.6.1`、`transformers 5.12.1`、`flash-attn 2.8.1`、`ray 2.58.0`。文中数值都来自本机跑通的例子，代码行号对应上述 commit。
 
-## NeMo RL Overview
+## 总览
 
 NeMo RL 是 NVIDIA 开源的大模型后训练库：GRPO、PPO、DPO、SFT、蒸馏都跑在同一套 Worker 上，训练后端可选 PyTorch 原生的 Automodel（FSDP2）或 Megatron，生成后端可选 vLLM、SGLang、Megatron、TensorRT-LLM 或托管的 Dynamo。
 
@@ -107,7 +107,7 @@ flowchart TB
   
 
 
-## 代码在哪里
+## 代码结构
 
 ```text
 RL/
@@ -130,191 +130,6 @@ RL/
 
   
 
-
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/NVIDIA-NeMo/RL.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main        # 未提交的改动自动收起，做完再放回
-git submodule update --init --recursive     # 子模块对齐到这个 commit 记录的版本
-```
-
-- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
-- 子模块：Automodel、Megatron-Bridge、Gym 都是子模块，版本由主仓库的 commit 记录。只更新主仓库不更新子模块，装出来的环境就和代码对不上。
-- 不要加 `--depth 1`：本机试过，`git submodule update --init --depth 1` 让 Gym 和 Megatron-Bridge 停在了各自的 main 上，而不是记录的版本。
-
-### 安装
-
-官方流程只有两步，`uv` 会读 `.python-version` 选 Python（main 要求 3.13.14 以上），按 `uv.lock` 装包：
-
-```bash
-uv venv
-uv run examples/run_grpo.py      # 第一次运行时自动 uv sync
-```
-
-本机的系统库太旧，用 NGC 镜像提供系统环境，代码仍是宿主机上的 checkout。`rl_study/scripts/nrlbox.sh` 把命令包进容器执行：
-
-```bash
-apptainer exec --nv --bind /data/home --bind /tmp --pwd /data/home/xli49/lxy/RL nemo-rl-v0.7.0.sif \
-  env UV_PROJECT_ENVIRONMENT=$N/venv \
-      NEMO_RL_VENV_DIR=$N/ray_venvs_sm86 \
-      UV_CACHE_DIR=$N/uv_cache_sm86 \
-      RAY_TMPDIR=/tmp/ray_nrl_$USER \
-      TORCH_CUDA_ARCH_LIST="8.6" FLASH_ATTN_CUDA_ARCHS="80" \
-      bash -c "<命令>"
-```
-
-| 变量 | 为什么要设 |
-| ---- | ---------- |
-| `UV_PROJECT_ENVIRONMENT` | 镜像里自带的 venv 是只读的，项目 venv 放到可写的目录 |
-| `NEMO_RL_VENV_DIR` | 每类 Worker 有自己的 venv（见下），也要放到可写目录 |
-| `UV_CACHE_DIR` | 按 GPU 架构分开：编出来的 CUDA 扩展只对一种架构有效 |
-| `RAY_TMPDIR` | Ray 的 socket 路径有 107 字节的上限，路径要短 |
-| `TORCH_CUDA_ARCH_LIST` | 镜像默认 `9.0 10.0`（H100、B200），源码编的扩展（flash-attn、TE 等）没有 A40 的 sm86 kernel |
-
-- 每类 Worker 一个 venv：NeMo RL 第一次创建某类 Worker 时，按它需要的 extra 单独建一个 venv，例如 vLLM Worker 装 vllm，训练 Worker 装 flash-attn。本机建好的两个：
-- 第一次很慢：flash-attn 等要按 sm86 从源码编，本机 8 个 CPU 编了约 2 小时；之后都从 uv 缓存安装。
-
-### 检查安装
-
-只检查环境和 `uv.lock` 是否一致，不改环境：
-
-```bash
-uv sync --locked --check
-# Resolved 574 packages in 174ms
-# Checked 266 packages in 4.36s
-# Would make no changes
-```
-
-  
-
-
-
-# 提PR
-
-  
-
-
-
-## 提 PR 流程
-
-规则以官方的 `CONTRIBUTING.md`、`docs/testing.md`、`.github/PULL_REQUEST_TEMPLATE.md` 和 `skills/contributing/SKILL.md` 为准。用 AI 助手改代码时，仓库的 `CLAUDE.md` 要求先读 `skills/` 下对应的 `SKILL.md`。
-
-### 1. 建分支
-
-```bash
-git fetch upstream
-git checkout -b fix/<主题> upstream/main
-git submodule update --init --recursive
-```
-
-动手前先查重，已有 open PR 修同一个问题就不要再开：
-
-```text
-https://github.com/NVIDIA-NeMo/RL/pulls?q=is%3Apr+<关键词>
-```
-
-### 2. 测试
-
-```bash
-uv run --group dev pre-commit install                    # 只需第一次
-uv run --group dev pre-commit run --all-files            # ruff 等检查
-uv run --group test pytest tests/unit/<目录>/test_xxx.py  # 跑相关的单测
-uv run --group test bash tests/run_unit.sh               # 全部单测
-```
-
-- 只用 `uv`：不要 `pip install`，加依赖用 `uv add`，`pyproject.toml` 和 `uv.lock` 一起提交。
-- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
-
-### 3. 提交
-
-```bash
-git add <文件>
-git commit -s -m "fix(grpo): <描述>"     # -s 加 Signed-off-by
-git push -u origin fix/<主题>
-```
-
-标题用 Conventional Commits，CI 的 `semantic-pull-request` 会检查：
-
-```text
-<类型>[(范围)]: <描述>
-
-fix: preserve RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES
-feat(grpo): add dataclass config defaults infrastructure
-```
-
-- 类型：`feat`、`fix`、`perf`、`refactor`、`test`、`docs`、`ci`、`build`、`chore`、`revert`。
-- 不要用方括号：`[ci] fix: ...` 这种写法不符合规范。
-- 签名：没有 `Signed-off-by` 的提交不会被接受。
-
-### 4. 开 PR
-
-目标选 `NVIDIA-NeMo/RL:main`，正文照模板的各节写：
-
-```markdown
-# What does this PR do ?
-
-<一句话：问题是什么、怎么修。>
-
-# Issues
-
-Closes #<issue>
-
-# Usage
-
-<用法示例；没有 API 变化就写 No API change.>
-
-# Before your PR is "Ready for review"
-
-- [x] Make sure you read and followed Contributor guidelines
-- [x] Did you write any new necessary tests?
-- [x] Did you run the unit tests and functional tests locally?
-- [ ] Did you add or update any necessary documentation?
-
-# Additional Information
-
-<测试命令和结果：修复前失败，修复后通过>
-```
-
-- 触发 CI：推送后在 PR 里评论 `/ok to test <完整 commit sha>`，sha 用 `git rev-parse HEAD` 取，不能用短 sha。
-- 自动 review：评论 `/review` 会触发仓库配置的 review 服务。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review**
-
-```bash
-git checkout fix/<主题>
-# 修改代码
-uv run --group dev pre-commit run --all-files
-git add <文件>
-git commit -s -m "fix(grpo): address review comments"
-git push
-```
-
-推送后 sha 变了，要重新评论 `/ok to test <新 sha>`。
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main
-git submodule update --init --recursive
-git push --force-with-lease
-```
-
-- 有冲突：编辑冲突文件，`git add <文件>`，再 `git rebase --continue`。
-- 想放弃：`git rebase --abort`。
-
-  
-  
 
 
 ## 跑通第一个例子：GRPO
@@ -1024,3 +839,184 @@ if should_run_validation:
 3. 试 `data_plane.enabled=true`，主循环换成 `grpo_train_sync`，张量改走 TransferQueue，可选 `mooncake_cpu` 存储，见 [Mooncake 入门笔记](08_mooncake.md)。
 4. 用 `grpo_math_1B_dynamo.yaml` 把生成交给托管的 Dynamo，见 [Dynamo 入门笔记](10_dynamo.md)。
 5. 对比其他框架：[框架对比](/posts/llm-rl-frameworks-comparison/)。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/NVIDIA-NeMo/RL.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main        # 未提交的改动自动收起，做完再放回
+git submodule update --init --recursive     # 子模块对齐到这个 commit 记录的版本
+```
+
+- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
+- 子模块：Automodel、Megatron-Bridge、Gym 都是子模块，版本由主仓库的 commit 记录。只更新主仓库不更新子模块，装出来的环境就和代码对不上。
+- 不要加 `--depth 1`：本机试过，`git submodule update --init --depth 1` 让 Gym 和 Megatron-Bridge 停在了各自的 main 上，而不是记录的版本。
+
+### 安装
+
+官方流程只有两步，`uv` 会读 `.python-version` 选 Python（main 要求 3.13.14 以上），按 `uv.lock` 装包：
+
+```bash
+uv venv
+uv run examples/run_grpo.py      # 第一次运行时自动 uv sync
+```
+
+本机的系统库太旧，用 NGC 镜像提供系统环境，代码仍是宿主机上的 checkout。`rl_study/scripts/nrlbox.sh` 把命令包进容器执行：
+
+```bash
+apptainer exec --nv --bind /data/home --bind /tmp --pwd /data/home/xli49/lxy/RL nemo-rl-v0.7.0.sif \
+  env UV_PROJECT_ENVIRONMENT=$N/venv \
+      NEMO_RL_VENV_DIR=$N/ray_venvs_sm86 \
+      UV_CACHE_DIR=$N/uv_cache_sm86 \
+      RAY_TMPDIR=/tmp/ray_nrl_$USER \
+      TORCH_CUDA_ARCH_LIST="8.6" FLASH_ATTN_CUDA_ARCHS="80" \
+      bash -c "<命令>"
+```
+
+| 变量 | 为什么要设 |
+| ---- | ---------- |
+| `UV_PROJECT_ENVIRONMENT` | 镜像里自带的 venv 是只读的，项目 venv 放到可写的目录 |
+| `NEMO_RL_VENV_DIR` | 每类 Worker 有自己的 venv（见下），也要放到可写目录 |
+| `UV_CACHE_DIR` | 按 GPU 架构分开：编出来的 CUDA 扩展只对一种架构有效 |
+| `RAY_TMPDIR` | Ray 的 socket 路径有 107 字节的上限，路径要短 |
+| `TORCH_CUDA_ARCH_LIST` | 镜像默认 `9.0 10.0`（H100、B200），源码编的扩展（flash-attn、TE 等）没有 A40 的 sm86 kernel |
+
+- 每类 Worker 一个 venv：NeMo RL 第一次创建某类 Worker 时，按它需要的 extra 单独建一个 venv，例如 vLLM Worker 装 vllm，训练 Worker 装 flash-attn。本机建好的两个：
+- 第一次很慢：flash-attn 等要按 sm86 从源码编，本机 8 个 CPU 编了约 2 小时；之后都从 uv 缓存安装。
+
+### 检查安装
+
+只检查环境和 `uv.lock` 是否一致，不改环境：
+
+```bash
+uv sync --locked --check
+# Resolved 574 packages in 174ms
+# Checked 266 packages in 4.36s
+# Would make no changes
+```
+
+  
+
+
+
+# 提PR
+
+  
+
+
+
+## 提 PR 流程
+
+规则以官方的 `CONTRIBUTING.md`、`docs/testing.md`、`.github/PULL_REQUEST_TEMPLATE.md` 和 `skills/contributing/SKILL.md` 为准。用 AI 助手改代码时，仓库的 `CLAUDE.md` 要求先读 `skills/` 下对应的 `SKILL.md`。
+
+### 1. 建分支
+
+```bash
+git fetch upstream
+git checkout -b fix/<主题> upstream/main
+git submodule update --init --recursive
+```
+
+动手前先查重，已有 open PR 修同一个问题就不要再开：
+
+```text
+https://github.com/NVIDIA-NeMo/RL/pulls?q=is%3Apr+<关键词>
+```
+
+### 2. 测试
+
+```bash
+uv run --group dev pre-commit install                    # 只需第一次
+uv run --group dev pre-commit run --all-files            # ruff 等检查
+uv run --group test pytest tests/unit/<目录>/test_xxx.py  # 跑相关的单测
+uv run --group test bash tests/run_unit.sh               # 全部单测
+```
+
+- 只用 `uv`：不要 `pip install`，加依赖用 `uv add`，`pyproject.toml` 和 `uv.lock` 一起提交。
+- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
+
+### 3. 提交
+
+```bash
+git add <文件>
+git commit -s -m "fix(grpo): <描述>"     # -s 加 Signed-off-by
+git push -u origin fix/<主题>
+```
+
+标题用 Conventional Commits，CI 的 `semantic-pull-request` 会检查：
+
+```text
+<类型>[(范围)]: <描述>
+
+fix: preserve RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES
+feat(grpo): add dataclass config defaults infrastructure
+```
+
+- 类型：`feat`、`fix`、`perf`、`refactor`、`test`、`docs`、`ci`、`build`、`chore`、`revert`。
+- 不要用方括号：`[ci] fix: ...` 这种写法不符合规范。
+- 签名：没有 `Signed-off-by` 的提交不会被接受。
+
+### 4. 开 PR
+
+目标选 `NVIDIA-NeMo/RL:main`，正文照模板的各节写：
+
+```markdown
+# What does this PR do ?
+
+<一句话：问题是什么、怎么修。>
+
+# Issues
+
+Closes #<issue>
+
+# Usage
+
+<用法示例；没有 API 变化就写 No API change.>
+
+# Before your PR is "Ready for review"
+
+- [x] Make sure you read and followed Contributor guidelines
+- [x] Did you write any new necessary tests?
+- [x] Did you run the unit tests and functional tests locally?
+- [ ] Did you add or update any necessary documentation?
+
+# Additional Information
+
+<测试命令和结果：修复前失败，修复后通过>
+```
+
+- 触发 CI：推送后在 PR 里评论 `/ok to test <完整 commit sha>`，sha 用 `git rev-parse HEAD` 取，不能用短 sha。
+- 自动 review：评论 `/review` 会触发仓库配置的 review 服务。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review**
+
+```bash
+git checkout fix/<主题>
+# 修改代码
+uv run --group dev pre-commit run --all-files
+git add <文件>
+git commit -s -m "fix(grpo): address review comments"
+git push
+```
+
+推送后 sha 变了，要重新评论 `/ok to test <新 sha>`。
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main
+git submodule update --init --recursive
+git push --force-with-lease
+```
+
+- 有冲突：编辑冲突文件，`git add <文件>`，再 `git rebase --continue`。
+- 想放弃：`git rebase --abort`。

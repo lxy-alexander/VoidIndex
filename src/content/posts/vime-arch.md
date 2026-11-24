@@ -8,12 +8,11 @@ tags:
   - vllm
   - megatron
 draft: false
-
 ---
 
 > 代码版本：`vime@d7e40fe8`（2026-10-14，0.3.x）。运行环境：4 × H100 NVL 94GB，官方镜像 `vllm/vime:slime-58b0878679de-vime-4ad3486cb740`（转成 Apptainer SIF），内含 `vllm 0.31.1rc1.dev23`（打了 vime 的补丁）、`torch 2.13.0+cu130`、Megatron-LM。文中数值都来自本机跑通的 GRPO 例子，代码行号对应上述 commit。
 
-## 架构
+## 总览
 
 vime 是 vLLM 社区维护的大模型强化学习框架，从 slime 派生而来：训练用 Megatron，生成用 vLLM。它和 slime 的主循环几乎逐行相同，区别集中在推理那一侧。
 
@@ -98,9 +97,9 @@ flowchart TB
         Natalia sold clips to 48 of her friends ... within \boxed{}.<|im_end|>
         <|im_start|>assistant
         <think>
-
+    
         </think>
-
+    
         ```
 
 - **③ 生成请求（token 进）**：每组起一个异步任务，组内 8 条各发一个请求，256 条同时发出。请求经 vllm-router 分给 4 个 vLLM，temperature=1.0，最多生成 1024 个 token。
@@ -218,7 +217,7 @@ flowchart TB
 <br />
 <br />
 
-## 代码在哪里
+## 代码结构
 
 ```text
 vime/
@@ -245,174 +244,6 @@ vime/
     ├── loss.py                                # logprob、优势、policy loss
     └── update_weight/                         # 训练到推理的权重同步
 ```
-
-<br />
-<br />
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/vllm-project/vime.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
-```
-
-- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
-- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
-
-### 安装
-
-vime 依赖打了补丁的 vLLM、Megatron-LM 和 TransformerEngine，自己编译很慢，官方推荐直接用 Docker 镜像：
-
-```bash
-docker pull vllm/vime:latest
-docker run --rm -it --gpus all --ipc=host --shm-size=16g \
-  --ulimit memlock=-1 --ulimit stack=67108864 \
-  -v $PWD:/root/vime -w /root/vime vllm/vime:latest bash
-pip install -e . --no-deps               # 镜像里已有全部依赖，只把源码装成可编辑模式
-```
-
-- `--ipc=host`、`--shm-size=16g`：Ray object store 和 CUDA IPC 都要用共享内存，默认的 64 MB 不够。
-- `-v $PWD:/root/vime`：把本地源码挂到镜像里 vime 的安装位置，改代码立即生效。
-- `--no-deps`：不让 pip 动镜像里已经配好的 vLLM、torch 版本。
-
-本机没有 Docker，用 Apptainer 把镜像转成 SIF 文件，再用同样的方式挂载源码：
-
-```bash
-apptainer pull rl_study/sif/vime-4ad3486c.sif docker://vllm/vime:slime-58b0878679de-vime-4ad3486cb740
-apptainer exec --nv --writable-tmpfs \
-  --bind /data/home --bind /tmp --bind /data/home/xli49/lxy/vime:/root/vime \
-  rl_study/sif/vime-4ad3486c.sif bash        # rl_study/scripts/vimebox.sh 就是这条命令
-```
-
-- 镜像标签要和代码版本对上：标签里的 `vime-4ad3486cb740` 是镜像对应的 vime commit。旧的 `vime-latest.sif`（10-01）里的 vLLM 没有 `/health_generate` 接口，新代码启动时会一直卡在健康检查。
-- `--nv`：把宿主机的 NVIDIA 驱动挂进容器。
-- `--writable-tmpfs`：允许在容器里临时写文件，退出后丢弃。
-
-### 检查安装
-
-进入容器后，确认关键包能导入、GPU 可用：
-
-```bash
-python -c "import torch, vllm, megatron.core, transformer_engine; print(torch.__version__, vllm.__version__, torch.cuda.is_available())"
-pip show vime | grep Location          # 应指向 /root/vime，说明用的是挂载进来的源码
-```
-
-<br />
-<br />
-
-## 提 PR 流程
-
-规则以官方的 `CONTRIBUTING.md` 为准，PR 标题、签名和 AI 协助的要求都沿用 vLLM 的规范。
-
-### 1. 建分支
-
-```bash
-git fetch upstream
-git checkout -b fix/<主题> upstream/main    # bug 用 fix/，功能用 feature/，文档用 docs/
-```
-
-- 新功能先开 Issue：和维护者讨论清楚问题、设计和验证方法，再写代码。
-- 大改动先开 Issue：除测试和配置外超过 500 行的改动，要先讨论设计。
-
-动手前先查重，已有 open PR 修同一个问题就不要再开：
-
-```text
-https://github.com/vllm-project/vime/pulls?q=is%3Apr+<关键词>
-```
-
-### 2. 测试
-
-```bash
-pre-commit install                                                 # 只需第一次
-pre-commit run --all-files --show-diff-on-failure --color=always   # ruff、isort 等检查
-pytest tests/<相关文件>.py -v                                       # 跑相关测试
-```
-
-- pre-commit：在 pre-commit.ci 上自动运行，不通过不能合并。
-- GPU 测试：PR 的 GPU 测试跑在 Buildkite 上，说明在 `.buildkite/README.md`。
-- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
-
-### 3. 提交
-
-```bash
-git add <文件>                                  # 不要 git add .
-git commit -s -m "[Bugfix][Rollout] <描述>"      # -s 自动加 Signed-off-by
-git push -u origin fix/<主题>
-```
-
-PR 标题以分类前缀开头，跨多个模块就叠加多个：
-
-```text
-[Bugfix][Rollout] keep sample cursor across dataset epochs
-[Training] add Qwen3-Omni multimodal RL support
-```
-
-- `[Bugfix]`：修 bug。
-- `[Training]`：Megatron 训练循环、权重同步、训练端逻辑。
-- `[Rollout]`：vLLM 生成、router、推理集成。
-- `[Core]`：数据缓冲、Ray actor、公共参数等框架编排。
-- `[Example]`：`examples/` 或 `scripts/` 下的脚本。
-- `[Doc]`、`[CI/Build]`、`[Hardware][Ascend]`、`[Misc]`：文档、CI、硬件相关、其他（少用）。
-- 签名（DCO）：每个 commit 都要有 `Signed-off-by:`，用 `git commit -s` 自动加。
-
-### 4. 开 PR
-
-在自己的 fork 上点 Compare & pull request，目标选 `vllm-project/vime:main`。仓库没有 PR 模板，正文按 CONTRIBUTING 的要求写清楚这几项：
-
-```markdown
-## What
-
-Fixes #<issue>. <一两句话：问题是什么。>
-
-## Why / How
-
-<为什么会出错，怎么修。>
-
-## Verification
-
-- GPU: 4 × H100, vLLM <版本>
-- `pytest tests/test_xxx.py -v`：修复前失败，修复后通过
-- <训练日志或最小复现命令>
-
-## AI assistance
-
-This PR was written with help from <工具>. I reviewed every changed line and ran the tests above.
-```
-
-- AI 协助：不能提交"纯 agent 写的 PR"，提交人要读过所有改动、亲自验证；PR 正文要声明，commit 里加 `Co-authored-by:` 标注。
-- 不做零碎 PR：单个错别字、孤立的风格清理这类改动要合并成一个有明确范围的 PR。
-- 文档：改了用户可见的行为或参数，要同时更新 `docs/` 的英文和中文版。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review（最常见）**
-
-```bash
-git checkout fix/<主题>
-# 修改代码
-pre-commit run --all-files
-git add <文件>
-git commit -s -m "[Bugfix][Rollout] address review comments"
-git push                       # 普通推送，PR 自动出现新提交
-```
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
-git push --force-with-lease    # rebase 改写了历史，必须强制推送
-```
-
-- 没有冲突：rebase 自动完成，直接 push。
-- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。
-- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
 
 <br />
 <br />
@@ -1379,3 +1210,171 @@ if should_run_periodic_action(rollout_id, args.eval_interval, num_rollout_per_ep
 3. 写自己的奖励：`--custom-rm-path xx.rm`，函数签名是 `async def rm(args, sample) -> float`。
 4. 对比 SGLang 版：[slime 入门笔记](/posts/slime-study-notes/) 用完全相同的超参，可以直接比较两个推理后端。
 5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/vllm-project/vime.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
+```
+
+- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
+- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
+
+### 安装
+
+vime 依赖打了补丁的 vLLM、Megatron-LM 和 TransformerEngine，自己编译很慢，官方推荐直接用 Docker 镜像：
+
+```bash
+docker pull vllm/vime:latest
+docker run --rm -it --gpus all --ipc=host --shm-size=16g \
+  --ulimit memlock=-1 --ulimit stack=67108864 \
+  -v $PWD:/root/vime -w /root/vime vllm/vime:latest bash
+pip install -e . --no-deps               # 镜像里已有全部依赖，只把源码装成可编辑模式
+```
+
+- `--ipc=host`、`--shm-size=16g`：Ray object store 和 CUDA IPC 都要用共享内存，默认的 64 MB 不够。
+- `-v $PWD:/root/vime`：把本地源码挂到镜像里 vime 的安装位置，改代码立即生效。
+- `--no-deps`：不让 pip 动镜像里已经配好的 vLLM、torch 版本。
+
+本机没有 Docker，用 Apptainer 把镜像转成 SIF 文件，再用同样的方式挂载源码：
+
+```bash
+apptainer pull rl_study/sif/vime-4ad3486c.sif docker://vllm/vime:slime-58b0878679de-vime-4ad3486cb740
+apptainer exec --nv --writable-tmpfs \
+  --bind /data/home --bind /tmp --bind /data/home/xli49/lxy/vime:/root/vime \
+  rl_study/sif/vime-4ad3486c.sif bash        # rl_study/scripts/vimebox.sh 就是这条命令
+```
+
+- 镜像标签要和代码版本对上：标签里的 `vime-4ad3486cb740` 是镜像对应的 vime commit。旧的 `vime-latest.sif`（10-01）里的 vLLM 没有 `/health_generate` 接口，新代码启动时会一直卡在健康检查。
+- `--nv`：把宿主机的 NVIDIA 驱动挂进容器。
+- `--writable-tmpfs`：允许在容器里临时写文件，退出后丢弃。
+
+### 检查安装
+
+进入容器后，确认关键包能导入、GPU 可用：
+
+```bash
+python -c "import torch, vllm, megatron.core, transformer_engine; print(torch.__version__, vllm.__version__, torch.cuda.is_available())"
+pip show vime | grep Location          # 应指向 /root/vime，说明用的是挂载进来的源码
+```
+
+<br />
+<br />
+
+## 提 PR 流程
+
+规则以官方的 `CONTRIBUTING.md` 为准，PR 标题、签名和 AI 协助的要求都沿用 vLLM 的规范。
+
+### 1. 建分支
+
+```bash
+git fetch upstream
+git checkout -b fix/<主题> upstream/main    # bug 用 fix/，功能用 feature/，文档用 docs/
+```
+
+- 新功能先开 Issue：和维护者讨论清楚问题、设计和验证方法，再写代码。
+- 大改动先开 Issue：除测试和配置外超过 500 行的改动，要先讨论设计。
+
+动手前先查重，已有 open PR 修同一个问题就不要再开：
+
+```text
+https://github.com/vllm-project/vime/pulls?q=is%3Apr+<关键词>
+```
+
+### 2. 测试
+
+```bash
+pre-commit install                                                 # 只需第一次
+pre-commit run --all-files --show-diff-on-failure --color=always   # ruff、isort 等检查
+pytest tests/<相关文件>.py -v                                       # 跑相关测试
+```
+
+- pre-commit：在 pre-commit.ci 上自动运行，不通过不能合并。
+- GPU 测试：PR 的 GPU 测试跑在 Buildkite 上，说明在 `.buildkite/README.md`。
+- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
+
+### 3. 提交
+
+```bash
+git add <文件>                                  # 不要 git add .
+git commit -s -m "[Bugfix][Rollout] <描述>"      # -s 自动加 Signed-off-by
+git push -u origin fix/<主题>
+```
+
+PR 标题以分类前缀开头，跨多个模块就叠加多个：
+
+```text
+[Bugfix][Rollout] keep sample cursor across dataset epochs
+[Training] add Qwen3-Omni multimodal RL support
+```
+
+- `[Bugfix]`：修 bug。
+- `[Training]`：Megatron 训练循环、权重同步、训练端逻辑。
+- `[Rollout]`：vLLM 生成、router、推理集成。
+- `[Core]`：数据缓冲、Ray actor、公共参数等框架编排。
+- `[Example]`：`examples/` 或 `scripts/` 下的脚本。
+- `[Doc]`、`[CI/Build]`、`[Hardware][Ascend]`、`[Misc]`：文档、CI、硬件相关、其他（少用）。
+- 签名（DCO）：每个 commit 都要有 `Signed-off-by:`，用 `git commit -s` 自动加。
+
+### 4. 开 PR
+
+在自己的 fork 上点 Compare & pull request，目标选 `vllm-project/vime:main`。仓库没有 PR 模板，正文按 CONTRIBUTING 的要求写清楚这几项：
+
+```markdown
+## What
+
+Fixes #<issue>. <一两句话：问题是什么。>
+
+## Why / How
+
+<为什么会出错，怎么修。>
+
+## Verification
+
+- GPU: 4 × H100, vLLM <版本>
+- `pytest tests/test_xxx.py -v`：修复前失败，修复后通过
+- <训练日志或最小复现命令>
+
+## AI assistance
+
+This PR was written with help from <工具>. I reviewed every changed line and ran the tests above.
+```
+
+- AI 协助：不能提交"纯 agent 写的 PR"，提交人要读过所有改动、亲自验证；PR 正文要声明，commit 里加 `Co-authored-by:` 标注。
+- 不做零碎 PR：单个错别字、孤立的风格清理这类改动要合并成一个有明确范围的 PR。
+- 文档：改了用户可见的行为或参数，要同时更新 `docs/` 的英文和中文版。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review（最常见）**
+
+```bash
+git checkout fix/<主题>
+# 修改代码
+pre-commit run --all-files
+git add <文件>
+git commit -s -m "[Bugfix][Rollout] address review comments"
+git push                       # 普通推送，PR 自动出现新提交
+```
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
+git push --force-with-lease    # rebase 改写了历史，必须强制推送
+```
+
+- 没有冲突：rebase 自动完成，直接 push。
+- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。
+- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
+
+<br />
+<br />

@@ -13,7 +13,7 @@ draft: false
 
 > 代码版本：`SkyRL@50cfa014`（2026-10-30）。运行环境：4 × H100 NVL 94GB，`uv sync --extra fsdp` 装出的 `torch 2.13.0`（cu130）、`vllm 0.32.0`、`flash-attn 2.8.3`、`ray 2.57.0`、`vllm-router`。文中数值都来自本机跑通的 GRPO 例子，代码行号对应上述 commit。
 
-## 架构
+## 总览
 
 SkyRL 是 Berkeley Sky Computing Lab（NovaSky）开源的大模型强化学习库，面向 Agent 设计：同一个训练器既能跑单轮数学题，也能跑多轮 SQL、SWE agent。它把"生成"和"环境"做成独立的模块，奖励由 skyrl-gym 环境的 `step()` 给出。
 
@@ -173,7 +173,7 @@ flowchart TB
 <br />
 <br />
 
-## 代码在哪里
+## 代码结构
 
 ```text
 SkyRL/
@@ -194,174 +194,6 @@ SkyRL/
 ├── skyrl-gym/skyrl_gym/envs/gsm8k/        # GSM8kEnv：step() 打分
 └── examples/train/gsm8k/                  # gsm8k_dataset.py、run_gsm8k.sh
 ```
-
-<br />
-<br />
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/NovaSky-AI/SkyRL.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
-```
-
-- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
-- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
-
-### 安装
-
-官方用 uv，仓库自带 `uv.lock`：
-
-```bash
-uv venv --python 3.12
-uv sync --extra fsdp                     # FSDP2 + vLLM
-source .venv/bin/activate
-```
-
-- `--extra fsdp`：训练后端用 FSDP2，同时装 vLLM 和 flash-attn。用 Megatron 就换成 `--extra megatron`。
-- 后端 extra 互相冲突：`fsdp`、`megatron`、`jax` 不能同时装。
-- 官方脚本的启动方式：`uv run --isolated --extra fsdp -m skyrl.train.entrypoints.main_base ...`。`--isolated` 每次用一个干净的临时环境，Ray worker 通过 uv 的 runtime-env 钩子复用同一个环境。本文已经激活 `.venv`，直接 `python -m` 启动。
-
-本机遇到的问题：
-
-| 现象                                                  | 原因                                  | 解决                                                         |
-| ----------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------ |
-| `vllm-router ... only has wheels for manylinux_2_35`  | 宿主机 glibc 是 2.34                  | 在 Ubuntu 24.04 容器里用 `/usr/bin/python3.12` 建 venv，再在容器里运行 |
-| 在容器里 `uv sync` 仍报平台不兼容                     | uv 缓存了宿主机同一解释器的平台信息   | 用容器内的 `/usr/bin/python3.12` 建 venv                    |
-
-```bash
-rl_study/scripts/inbox.sh 'cd /data/home/xli49/lxy/SkyRL && uv venv --python /usr/bin/python3.12 .venv && uv sync --extra fsdp'
-```
-
-### 检查安装
-
-```bash
-python -c "import torch, vllm, flash_attn, ray, skyrl_gym; print(torch.__version__, vllm.__version__, ray.__version__, torch.cuda.is_available())"
-```
-
-<br />
-<br />
-
-## 提 PR 流程
-
-规则以官方的 `AGENTS.md`、`.agents/docs/contributing.md` 和 `docs/content/docs/getting-started/development.mdx` 为准。
-
-### 1. 建分支
-
-```bash
-git fetch upstream
-git checkout -b fix/<主题> upstream/main
-```
-
-动手前先查重，已有 open PR 修同一个问题就不要再开：
-
-```text
-https://github.com/NovaSky-AI/SkyRL/pulls?q=is%3Apr+<关键词>
-```
-
-### 2. 测试
-
-```bash
-uv run --isolated --extra dev pre-commit run --all-files     # 格式和 lint，也可以 bash format.sh
-
-# CPU 测试（和 .github/workflows/cpu_skyrl.yaml 一致，按 vllm 标记分两半跑）
-uv run --isolated --extra skyrl-train --extra dev pytest tests/train/ tests/backends/skyrl_train/ --ignore=tests/backends/skyrl_train/gpu -m "not vllm"
-uv run --isolated --extra fsdp --extra dev pytest tests/train/ tests/backends/skyrl_train/ --ignore=tests/backends/skyrl_train/gpu -m "vllm"
-
-# GPU 测试（需要有 GPU 的 Ray 集群）
-uv run --isolated --extra dev --extra fsdp pytest tests/backends/skyrl_train/gpu/gpu_ci/test_engine_generation.py
-```
-
-- 一律用 `uv run --isolated`：不要直接用 `python`、`pip`。
-- 测试会 `ray.init()`：如果机器上已经有正在训练的 Ray 集群，测试会连上去把它的 worker 搞崩，所以加 `RAY_ADDRESS=local`。
-- 从小处开始：改配置先跑 CPU 测试；改生成跑生成测试；动了训练和推理的边界跑权重同步测试；最后才跑 1–2 步端到端训练。用最小的模型（比如 `Qwen/Qwen3-0.6B`）和最少的卡。
-- GPU CI：给 PR 打 `run_h100_gpu_ci` 标签触发 H100 测试；端到端 GPU 测试每天定时跑一次。
-- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
-
-### 3. 提交
-
-```bash
-git add <文件>                                # 不要 git add .
-git commit -m "[trainer] fix: <描述>"
-git push -u origin fix/<主题>
-```
-
-SkyRL 没有强制的标题格式，近期合并的 PR 标题大致是这两种：
-
-```text
-[vllm] Extend the DeepSeek-V4 weight-sync reload patch to V4.1's text model
-[feat][megatron] Support optimizer state offload to disk
-feat(megatron): fuse LM-head entropy for RL
-```
-
-- 代码风格：遵循 Google Python Style Guide，并沿用仓库里已有的写法，比如分词器用 `skyrl.utils.tok.get_tokenizer`。
-- 不要做的事：Ray 任务和 actor 用 `fork` 启动（要用 `spawn`）；只需要子配置时把整个 `SkyRLTrainConfig` 传进去。
-- 同步更新：改了路径或命名，要更新示例脚本、文档、`.agents/` 和 `AGENTS.md`；改了文档要确认能构建（`cd docs && npm install && npm run build`）。
-
-### 4. 开 PR
-
-在自己的 fork 上点 Compare & pull request，目标选 `NovaSky-AI/SkyRL:main`。正文按 `.agents/docs/contributing.md` 的结构写，用不上的节删掉：
-
-```markdown
-# What does this PR do?
-
-Fixes #<issue>. <一两句话。>
-
-TLDR: <一句话结论。>
-
-## Why it happens
-
-1. <原因链的第一步>
-2. <第二步>
-
-## Solution
-
-<怎么修的；考虑过哪些别的办法，为什么没选。>
-
-## Test plan
-
-<新测试断言了什么，为什么够用。>
-
-## Validation
-
-- 硬件：4 × H100
-- 命令：`uv run --isolated --extra fsdp --extra dev pytest tests/... -v`
-- 结果：修复前 4 failed / 40 passed，修复后 0 failed / 44 passed
-```
-
-- 原样引用报错：贴真实的错误信息，比"一个张量错误"有用得多。
-- 给真实数字：前后对比用表格最清楚；说明哪些失败是本来就有的或偶发的。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review（最常见）**
-
-```bash
-git checkout fix/<主题>
-# 修改代码
-uv run --isolated --extra dev pre-commit run --all-files
-git add <文件>
-git commit -m "[trainer] fix: address review comments"
-git push                       # 普通推送，PR 自动出现新提交
-```
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
-git push --force-with-lease    # rebase 改写了历史，必须强制推送
-```
-
-- 没有冲突：rebase 自动完成，直接 push。
-- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。
-- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
 
 <br />
 <br />
@@ -1137,3 +969,171 @@ await self._inference_engine_client.wake_up(tags=["kv_cache"])  # 恢复 KV cach
 3. fully-async：`examples/train/fully_async/main_fully_async.py`，2 卡训练 + 2 卡生成，`max_staleness_steps` 控制生成最多领先几个版本。
 4. 写自己的环境：继承 `skyrl_gym.envs.base_text_env.BaseTextEnv`，实现 `init` 和 `step`，用 `skyrl_gym.register` 注册，数据里写 `env_class`。
 5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/NovaSky-AI/SkyRL.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
+```
+
+- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
+- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
+
+### 安装
+
+官方用 uv，仓库自带 `uv.lock`：
+
+```bash
+uv venv --python 3.12
+uv sync --extra fsdp                     # FSDP2 + vLLM
+source .venv/bin/activate
+```
+
+- `--extra fsdp`：训练后端用 FSDP2，同时装 vLLM 和 flash-attn。用 Megatron 就换成 `--extra megatron`。
+- 后端 extra 互相冲突：`fsdp`、`megatron`、`jax` 不能同时装。
+- 官方脚本的启动方式：`uv run --isolated --extra fsdp -m skyrl.train.entrypoints.main_base ...`。`--isolated` 每次用一个干净的临时环境，Ray worker 通过 uv 的 runtime-env 钩子复用同一个环境。本文已经激活 `.venv`，直接 `python -m` 启动。
+
+本机遇到的问题：
+
+| 现象                                                  | 原因                                  | 解决                                                         |
+| ----------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------ |
+| `vllm-router ... only has wheels for manylinux_2_35`  | 宿主机 glibc 是 2.34                  | 在 Ubuntu 24.04 容器里用 `/usr/bin/python3.12` 建 venv，再在容器里运行 |
+| 在容器里 `uv sync` 仍报平台不兼容                     | uv 缓存了宿主机同一解释器的平台信息   | 用容器内的 `/usr/bin/python3.12` 建 venv                    |
+
+```bash
+rl_study/scripts/inbox.sh 'cd /data/home/xli49/lxy/SkyRL && uv venv --python /usr/bin/python3.12 .venv && uv sync --extra fsdp'
+```
+
+### 检查安装
+
+```bash
+python -c "import torch, vllm, flash_attn, ray, skyrl_gym; print(torch.__version__, vllm.__version__, ray.__version__, torch.cuda.is_available())"
+```
+
+<br />
+<br />
+
+## 提 PR 流程
+
+规则以官方的 `AGENTS.md`、`.agents/docs/contributing.md` 和 `docs/content/docs/getting-started/development.mdx` 为准。
+
+### 1. 建分支
+
+```bash
+git fetch upstream
+git checkout -b fix/<主题> upstream/main
+```
+
+动手前先查重，已有 open PR 修同一个问题就不要再开：
+
+```text
+https://github.com/NovaSky-AI/SkyRL/pulls?q=is%3Apr+<关键词>
+```
+
+### 2. 测试
+
+```bash
+uv run --isolated --extra dev pre-commit run --all-files     # 格式和 lint，也可以 bash format.sh
+
+# CPU 测试（和 .github/workflows/cpu_skyrl.yaml 一致，按 vllm 标记分两半跑）
+uv run --isolated --extra skyrl-train --extra dev pytest tests/train/ tests/backends/skyrl_train/ --ignore=tests/backends/skyrl_train/gpu -m "not vllm"
+uv run --isolated --extra fsdp --extra dev pytest tests/train/ tests/backends/skyrl_train/ --ignore=tests/backends/skyrl_train/gpu -m "vllm"
+
+# GPU 测试（需要有 GPU 的 Ray 集群）
+uv run --isolated --extra dev --extra fsdp pytest tests/backends/skyrl_train/gpu/gpu_ci/test_engine_generation.py
+```
+
+- 一律用 `uv run --isolated`：不要直接用 `python`、`pip`。
+- 测试会 `ray.init()`：如果机器上已经有正在训练的 Ray 集群，测试会连上去把它的 worker 搞崩，所以加 `RAY_ADDRESS=local`。
+- 从小处开始：改配置先跑 CPU 测试；改生成跑生成测试；动了训练和推理的边界跑权重同步测试；最后才跑 1–2 步端到端训练。用最小的模型（比如 `Qwen/Qwen3-0.6B`）和最少的卡。
+- GPU CI：给 PR 打 `run_h100_gpu_ci` 标签触发 H100 测试；端到端 GPU 测试每天定时跑一次。
+- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
+
+### 3. 提交
+
+```bash
+git add <文件>                                # 不要 git add .
+git commit -m "[trainer] fix: <描述>"
+git push -u origin fix/<主题>
+```
+
+SkyRL 没有强制的标题格式，近期合并的 PR 标题大致是这两种：
+
+```text
+[vllm] Extend the DeepSeek-V4 weight-sync reload patch to V4.1's text model
+[feat][megatron] Support optimizer state offload to disk
+feat(megatron): fuse LM-head entropy for RL
+```
+
+- 代码风格：遵循 Google Python Style Guide，并沿用仓库里已有的写法，比如分词器用 `skyrl.utils.tok.get_tokenizer`。
+- 不要做的事：Ray 任务和 actor 用 `fork` 启动（要用 `spawn`）；只需要子配置时把整个 `SkyRLTrainConfig` 传进去。
+- 同步更新：改了路径或命名，要更新示例脚本、文档、`.agents/` 和 `AGENTS.md`；改了文档要确认能构建（`cd docs && npm install && npm run build`）。
+
+### 4. 开 PR
+
+在自己的 fork 上点 Compare & pull request，目标选 `NovaSky-AI/SkyRL:main`。正文按 `.agents/docs/contributing.md` 的结构写，用不上的节删掉：
+
+```markdown
+# What does this PR do?
+
+Fixes #<issue>. <一两句话。>
+
+TLDR: <一句话结论。>
+
+## Why it happens
+
+1. <原因链的第一步>
+2. <第二步>
+
+## Solution
+
+<怎么修的；考虑过哪些别的办法，为什么没选。>
+
+## Test plan
+
+<新测试断言了什么，为什么够用。>
+
+## Validation
+
+- 硬件：4 × H100
+- 命令：`uv run --isolated --extra fsdp --extra dev pytest tests/... -v`
+- 结果：修复前 4 failed / 40 passed，修复后 0 failed / 44 passed
+```
+
+- 原样引用报错：贴真实的错误信息，比"一个张量错误"有用得多。
+- 给真实数字：前后对比用表格最清楚；说明哪些失败是本来就有的或偶发的。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review（最常见）**
+
+```bash
+git checkout fix/<主题>
+# 修改代码
+uv run --isolated --extra dev pre-commit run --all-files
+git add <文件>
+git commit -m "[trainer] fix: address review comments"
+git push                       # 普通推送，PR 自动出现新提交
+```
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
+git push --force-with-lease    # rebase 改写了历史，必须强制推送
+```
+
+- 没有冲突：rebase 自动完成，直接 push。
+- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。
+- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
+
+<br />
+<br />

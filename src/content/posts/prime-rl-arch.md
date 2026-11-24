@@ -13,7 +13,7 @@ draft: false
 
 > 代码版本：`prime-rl@a566e5d8`（2026-10-29，0.10.0）。运行环境：4 × H100 NVL 94GB，`uv sync --all-extras` 装出的 `torch 2.13`（cu130）、`vllm 0.32`、`flash-attn 2.8.3`、`transformers 5.19`。文中数值都来自本机跑通的 reverse-text 例子，代码行号对应上述 commit。
 
-## 架构
+## 总览
 
 prime-rl 是 Prime Intellect 开源的大模型强化学习框架，INTELLECT-2/3 都用它训练。它和 verl、slime 最大的不同是：**没有 Ray，也没有一个总控制器**，推理和训练放在不同的卡上，异步地同时运行。
 
@@ -197,7 +197,7 @@ flowchart TB
 <br />
 <br />
 
-## 代码在哪里
+## 代码结构
 
 ```text
 prime-rl/
@@ -222,165 +222,6 @@ prime-rl/
 ├── deps/verifiers/environments/    # 环境：reverse_text、gsm8k、wordle ...
 └── examples/basic/reverse-text/    # 本文的例子：sft.toml、rl.toml
 ```
-
-<br />
-<br />
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/PrimeIntellect-ai/prime-rl.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
-git submodule update --init -- deps/verifiers deps/renderers deps/prime-envs deps/pydantic-config   # 子模块跟着更新
-```
-
-- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
-- 子模块：verifiers（环境框架）、renderers（聊天模板）、prime-envs、pydantic-config 都是子模块，主仓库更新后要重新同步。
-
-### 安装
-
-官方用 uv，仓库自带 `uv.lock`：
-
-```bash
-uv sync --all-extras                                          # 装 prime-rl 本身和所有 extra
-uv sync --all-extras --inexact --package prime-rl --package reverse-text   # 环境是可选的 workspace 成员，要单独装
-source .venv/bin/activate
-```
-
-- `--all-extras`：flash-attn、vLLM 等都在 extra 里，flash-attn 用的是预编译 wheel，不用本地编译。
-- `--package reverse-text`：每个环境是一个独立的 workspace 包，`uv sync --all-extras` 默认不装，要训练哪个就装哪个。
-- `--inexact`：只增不删，不卸载已经装好的其他环境。
-- `source .venv/bin/activate`：`rl` 启动器按名字调用 `inference`、`orchestrator`、`env-server`、`torchrun` 这些命令，`.venv/bin` 必须在 PATH 里，否则报 `FileNotFoundError: 'inference'`。也可以用 `uv run rl ...`。
-
-本机遇到的问题：
-
-| 现象                                                  | 原因                            | 解决                                                                        |
-| ----------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------- |
-| `git@github.com: Permission denied`                   | `.gitmodules` 用的是 SSH 地址   | `git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init ...` |
-| `git-lfs: command not found`                          | prime-envs 子模块用了 LFS        | `GIT_LFS_SKIP_SMUDGE=1 git submodule update ...`                            |
-| `mooncake-transfer-engine ... manylinux_2_35`         | 宿主机 glibc 是 2.34            | 在 Ubuntu 24.04 容器里用 `/usr/bin/python3.12` 建 venv，再在容器里运行     |
-| `The prime monitor found no Prime API key`            | 默认开启 Prime 平台的监控       | 加 `--no-monitors.prime`；W&B 用 `WANDB_MODE=disabled`                       |
-
-### 检查安装
-
-```bash
-uv run python -c "import torch, vllm, flash_attn, reverse_text; print(torch.__version__, vllm.__version__, torch.cuda.is_available())"
-uv run rl @ examples/basic/reverse-text/rl.toml --dry-run True    # 只解析配置，写出 resolved/*.json，不启动进程
-```
-
-- `--dry-run True`：把最终生效的配置写到 `configs/attempt_1/resolved/` 下，可以先检查 GPU 划分、loss 类型这些推导出来的值。
-
-<br />
-<br />
-
-## 提 PR 流程
-
-规则以官方的 `AGENTS.md` 和 `docs/development.md` 为准。
-
-### 1. 建分支
-
-```bash
-git fetch upstream
-git checkout -b fix/<主题> upstream/main    # bug 用 fix/，功能用 feat/，杂项用 chore/，实验用 exp/
-```
-
-动手前先查重，已有 open PR 修同一个问题就不要再开：
-
-```text
-https://github.com/PrimeIntellect-ai/prime-rl/pulls?q=is%3Apr+<关键词>
-```
-
-### 2. 测试
-
-```bash
-uv run pre-commit install                   # 只需第一次，之后每次 commit 自动跑 ruff check 和 ruff format
-uv run pytest tests/unit -m "not gpu" -v    # CPU 单元测试，和 CPU CI 一样
-uv run pytest tests/integration/test_reverse_text.py -vvs   # 端到端：tiny 模型跑一遍 RL
-```
-
-- 一律用 `uv run`：不要直接调 `python`，保证用的是锁定的环境。
-- 测试分三层：`tests/unit/`（快、隔离的逻辑）、`tests/integration/`（tiny 模型跑完整 RL/SFT）、`tests/regression/`（每晚跑）。
-- 测试写法：普通函数 + pytest fixture，不写 class 风格的测试；只测纯函数、数据变换、算法这类逻辑清楚的代码，不为框架胶水代码写一堆 mock。
-- 不要随便加测试：改现有测试可以，新增测试文件或测试函数要有明确必要。
-- GPU 测试：推送到 PR 不会跑 GPU CI。要跑时由有权限的人给 PR 打 `gpu-ci` 标签，工作流开始后会自动去掉标签，新推送后要重新打。fork 来的 PR 跑不了 GPU CI，需要维护者把分支推到主仓库。
-
-### 3. 提交
-
-```bash
-git add <文件>                             # 不要 git add .
-git commit -m "fix(trainer): <描述>"
-git push -u origin fix/<主题>
-```
-
-commit 标题和 PR 标题用 Conventional Commits 格式，括号里写模块：
-
-```text
-fix(ckpt): restore optimizer param groups when resuming with optimizer state offload
-feat(trainer): add a fixed sample length to fake RL data
-perf(deepseek-v4): balance indexer scoring across CP ranks
-refactor(trainer)!: fold multimodal into trainer/vlm.py
-```
-
-- 类型：`feat`、`fix`、`perf`、`refactor`、`chore`、`docs`、`test` 等。
-- 破坏兼容：类型后面加 `!`，比如 `refactor(trainer)!:`。
-- 依赖：加依赖写进 `pyproject.toml` 再 `uv sync --all-extras`；git 依赖的 `rev` 用 7 位短 hash。
-- 不要改 `.venv/`：下次 `uv sync` 会覆盖，也不会同步给别人。
-
-### 4. 开 PR
-
-```bash
-gh pr create --draft --base main --title "fix(trainer): <描述>" --body-file pr.md
-```
-
-- 先开 draft：避免不必要地触发 CI，准备好了再转成 ready。
-- 正文：写清楚改了什么、为什么；只有真的跑过测试，才写 test plan。
-
-```markdown
-## Summary
-
-Fixes #<issue>. <一两句话：问题是什么、怎么修。>
-
-## Changes
-
-- `src/prime_rl/xxx.py`: <改了什么、为什么>
-
-## Test plan
-
-- `uv run pytest tests/unit/test_xxx.py -v`：修复前失败，修复后通过
-```
-
-- 文档：`docs/` 只描述 `main` 的现状，不写"以前是 X"、迁移路径这类历史。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review（最常见）**
-
-```bash
-git checkout fix/<主题>
-# 修改代码
-git add <文件>
-git commit -m "fix(trainer): address review comments"
-git push                                   # 普通推送，PR 自动出现新提交
-gh pr edit <编号> --body-file pr.md        # 每次推送后同步更新 PR 描述，让它反映分支现状
-```
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
-git push --force-with-lease    # rebase 改写了历史，必须强制推送
-```
-
-- 没有冲突：rebase 自动完成，直接 push。
-- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。有合并冲突的 PR 跑不了 GPU CI。
-- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
 
 <br />
 <br />
@@ -1140,3 +981,162 @@ self.update_dispatch_gate()  # on_policy_update：版本号变了，lead 变小�
 3. 写自己的环境：在 verifiers 里写 `Taskset` + `Task`，用 `@vf.reward` 定义奖励、`@vf.stop` 定义停止条件，加进 workspace 后 `--package` 安装。
 4. 写自己的算法：在 `orchestrator/algo/` 下继承 `Algorithm`，实现 `score_group(episodes)`。
 5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/PrimeIntellect-ai/prime-rl.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
+git submodule update --init -- deps/verifiers deps/renderers deps/prime-envs deps/pydantic-config   # 子模块跟着更新
+```
+
+- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
+- 子模块：verifiers（环境框架）、renderers（聊天模板）、prime-envs、pydantic-config 都是子模块，主仓库更新后要重新同步。
+
+### 安装
+
+官方用 uv，仓库自带 `uv.lock`：
+
+```bash
+uv sync --all-extras                                          # 装 prime-rl 本身和所有 extra
+uv sync --all-extras --inexact --package prime-rl --package reverse-text   # 环境是可选的 workspace 成员，要单独装
+source .venv/bin/activate
+```
+
+- `--all-extras`：flash-attn、vLLM 等都在 extra 里，flash-attn 用的是预编译 wheel，不用本地编译。
+- `--package reverse-text`：每个环境是一个独立的 workspace 包，`uv sync --all-extras` 默认不装，要训练哪个就装哪个。
+- `--inexact`：只增不删，不卸载已经装好的其他环境。
+- `source .venv/bin/activate`：`rl` 启动器按名字调用 `inference`、`orchestrator`、`env-server`、`torchrun` 这些命令，`.venv/bin` 必须在 PATH 里，否则报 `FileNotFoundError: 'inference'`。也可以用 `uv run rl ...`。
+
+本机遇到的问题：
+
+| 现象                                                  | 原因                            | 解决                                                                        |
+| ----------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------- |
+| `git@github.com: Permission denied`                   | `.gitmodules` 用的是 SSH 地址   | `git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init ...` |
+| `git-lfs: command not found`                          | prime-envs 子模块用了 LFS        | `GIT_LFS_SKIP_SMUDGE=1 git submodule update ...`                            |
+| `mooncake-transfer-engine ... manylinux_2_35`         | 宿主机 glibc 是 2.34            | 在 Ubuntu 24.04 容器里用 `/usr/bin/python3.12` 建 venv，再在容器里运行     |
+| `The prime monitor found no Prime API key`            | 默认开启 Prime 平台的监控       | 加 `--no-monitors.prime`；W&B 用 `WANDB_MODE=disabled`                       |
+
+### 检查安装
+
+```bash
+uv run python -c "import torch, vllm, flash_attn, reverse_text; print(torch.__version__, vllm.__version__, torch.cuda.is_available())"
+uv run rl @ examples/basic/reverse-text/rl.toml --dry-run True    # 只解析配置，写出 resolved/*.json，不启动进程
+```
+
+- `--dry-run True`：把最终生效的配置写到 `configs/attempt_1/resolved/` 下，可以先检查 GPU 划分、loss 类型这些推导出来的值。
+
+<br />
+<br />
+
+## 提 PR 流程
+
+规则以官方的 `AGENTS.md` 和 `docs/development.md` 为准。
+
+### 1. 建分支
+
+```bash
+git fetch upstream
+git checkout -b fix/<主题> upstream/main    # bug 用 fix/，功能用 feat/，杂项用 chore/，实验用 exp/
+```
+
+动手前先查重，已有 open PR 修同一个问题就不要再开：
+
+```text
+https://github.com/PrimeIntellect-ai/prime-rl/pulls?q=is%3Apr+<关键词>
+```
+
+### 2. 测试
+
+```bash
+uv run pre-commit install                   # 只需第一次，之后每次 commit 自动跑 ruff check 和 ruff format
+uv run pytest tests/unit -m "not gpu" -v    # CPU 单元测试，和 CPU CI 一样
+uv run pytest tests/integration/test_reverse_text.py -vvs   # 端到端：tiny 模型跑一遍 RL
+```
+
+- 一律用 `uv run`：不要直接调 `python`，保证用的是锁定的环境。
+- 测试分三层：`tests/unit/`（快、隔离的逻辑）、`tests/integration/`（tiny 模型跑完整 RL/SFT）、`tests/regression/`（每晚跑）。
+- 测试写法：普通函数 + pytest fixture，不写 class 风格的测试；只测纯函数、数据变换、算法这类逻辑清楚的代码，不为框架胶水代码写一堆 mock。
+- 不要随便加测试：改现有测试可以，新增测试文件或测试函数要有明确必要。
+- GPU 测试：推送到 PR 不会跑 GPU CI。要跑时由有权限的人给 PR 打 `gpu-ci` 标签，工作流开始后会自动去掉标签，新推送后要重新打。fork 来的 PR 跑不了 GPU CI，需要维护者把分支推到主仓库。
+
+### 3. 提交
+
+```bash
+git add <文件>                             # 不要 git add .
+git commit -m "fix(trainer): <描述>"
+git push -u origin fix/<主题>
+```
+
+commit 标题和 PR 标题用 Conventional Commits 格式，括号里写模块：
+
+```text
+fix(ckpt): restore optimizer param groups when resuming with optimizer state offload
+feat(trainer): add a fixed sample length to fake RL data
+perf(deepseek-v4): balance indexer scoring across CP ranks
+refactor(trainer)!: fold multimodal into trainer/vlm.py
+```
+
+- 类型：`feat`、`fix`、`perf`、`refactor`、`chore`、`docs`、`test` 等。
+- 破坏兼容：类型后面加 `!`，比如 `refactor(trainer)!:`。
+- 依赖：加依赖写进 `pyproject.toml` 再 `uv sync --all-extras`；git 依赖的 `rev` 用 7 位短 hash。
+- 不要改 `.venv/`：下次 `uv sync` 会覆盖，也不会同步给别人。
+
+### 4. 开 PR
+
+```bash
+gh pr create --draft --base main --title "fix(trainer): <描述>" --body-file pr.md
+```
+
+- 先开 draft：避免不必要地触发 CI，准备好了再转成 ready。
+- 正文：写清楚改了什么、为什么；只有真的跑过测试，才写 test plan。
+
+```markdown
+## Summary
+
+Fixes #<issue>. <一两句话：问题是什么、怎么修。>
+
+## Changes
+
+- `src/prime_rl/xxx.py`: <改了什么、为什么>
+
+## Test plan
+
+- `uv run pytest tests/unit/test_xxx.py -v`：修复前失败，修复后通过
+```
+
+- 文档：`docs/` 只描述 `main` 的现状，不写"以前是 X"、迁移路径这类历史。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review（最常见）**
+
+```bash
+git checkout fix/<主题>
+# 修改代码
+git add <文件>
+git commit -m "fix(trainer): address review comments"
+git push                                   # 普通推送，PR 自动出现新提交
+gh pr edit <编号> --body-file pr.md        # 每次推送后同步更新 PR 描述，让它反映分支现状
+```
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
+git push --force-with-lease    # rebase 改写了历史，必须强制推送
+```
+
+- 没有冲突：rebase 自动完成，直接 push。
+- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。有合并冲突的 PR 跑不了 GPU CI。
+- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
+
+<br />
+<br />

@@ -13,7 +13,7 @@ draft: false
 
 > 代码版本：`slime@540ea919`（2026-10-27，0.4.0）。运行环境：4 × H100 NVL 94GB，官方镜像 `slimerl/slime:latest-cu130`（转成 Apptainer SIF），内含 `sglang 0.5.21`、`torch 2.13.0+cu130`、Megatron-LM、TransformerEngine。文中数值都来自本机跑通的 GRPO 例子，代码行号对应上述 commit。
 
-## slime Overview
+## 总览
 
 slime 是智谱（Z.ai）开源的大模型强化学习框架，GLM-4.5 到 GLM-5.3 的 RL 训练都用它：训练用 Megatron，生成用 SGLang。它的设计目标是轻量，训练主循环就是 `train.py` 里不到 100 行的 for 循环。
 
@@ -200,7 +200,7 @@ flowchart TB
 <br />
 <br />
 
-## 代码在哪里
+## 代码结构
 
 ```text
 slime/
@@ -228,178 +228,6 @@ slime/
     ├── loss.py                                # logprob、优势、policy loss
     └── update_weight/                         # 训练到推理的权重同步
 ```
-
-<br />
-<br />
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/THUDM/slime.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
-```
-
-- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
-- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
-
-### 安装
-
-slime 依赖特定版本的 SGLang、Megatron-LM、TransformerEngine 和 apex，自己编译很慢，官方推荐直接用 Docker 镜像：
-
-```bash
-docker pull slimerl/slime:latest-cu130
-docker run --rm -it --gpus all --ipc=host --shm-size=16g --ulimit memlock=-1 \
-  -v $PWD:/root/slime -w /root/slime slimerl/slime:latest-cu130 bash
-pip install -e . --no-deps               # 镜像里已有全部依赖，只把源码装成可编辑模式
-```
-
-- `cu130`：CUDA 13 镜像，H100、H200、B200 通用；驱动旧时会自动启用 forward-compat。
-- `--ipc=host`、`--shm-size=16g`：Ray object store 和 CUDA IPC 都要用共享内存，默认的 64 MB 不够。
-- `-v $PWD:/root/slime`：把本地源码挂到镜像里 slime 的安装位置，改代码立即生效。
-- `--no-deps`：不让 pip 动镜像里已经配好的 SGLang、torch 版本。
-- 没有 Docker：仓库里的 `build_conda.sh` 会从源码编译 SGLang、Megatron、TE 和 apex，耗时很长。
-
-本机没有 Docker，用 Apptainer 把镜像转成 SIF 文件，再用同样的方式挂载源码：
-
-```bash
-apptainer pull rl_study/sif/slime-cu130.sif docker://slimerl/slime:latest-cu130   # 约 13.9 GB，6 分钟
-apptainer exec --nv --writable-tmpfs \
-  --bind /data/home --bind /tmp --bind /data/home/xli49/lxy/slime:/root/slime \
-  rl_study/sif/slime-cu130.sif bash        # rl_study/scripts/slimebox.sh 就是这条命令
-```
-
-- `--nv`：把宿主机的 NVIDIA 驱动挂进容器。
-- `--writable-tmpfs`：允许在容器里临时写文件，退出后丢弃。
-
-### 检查安装
-
-进入容器后，确认关键包能导入、GPU 可用：
-
-```bash
-python -c "import torch, sglang, megatron.core, transformer_engine; print(torch.__version__, sglang.__version__, torch.cuda.is_available())"
-pip show slime | grep "Editable project location"    # 应是 /root/slime，说明用的是挂载进来的源码
-```
-
-<br />
-<br />
-
-## 提 PR 流程
-
-规则以官方的 `CONTRIBUTING.md` 和 `docs/en/developer_guide/ci.md` 为准。slime 对外部贡献有明确的范围，动手前先看清楚。
-
-### 1. 先看范围，再建分支
-
-slime 和智谱内部版本同步维护，所以只接收两类 PR：
-
-| 欢迎                                            | 暂不接收                                        |
-| ----------------------------------------------- | ----------------------------------------------- |
-| bug 报告、带测试或清晰复现步骤的 bug 修复       | 大范围重构                                      |
-| 有明确 benchmark、能用 CI 或常规训练验证的优化  | 通用数据标准、eval 标准、工具基类这类抽象       |
-|                                                 | 无法用 CI 验证的功能、整套算法复现流程          |
-|                                                 | 对 Megatron 的大幅改动                          |
-
-```bash
-git fetch upstream
-git checkout -b fix/<主题> upstream/main
-```
-
-动手前先查重，已有 open PR 修同一个问题就不要再开：
-
-```text
-https://github.com/THUDM/slime/pulls?q=is%3Apr+<关键词>
-```
-
-### 2. 测试
-
-```bash
-pre-commit install                     # 只需第一次
-pre-commit run --all-files             # ruff、autoflake、isort、black 等
-python tests/<相关测试>.py              # CI 也是这样直接运行测试文件
-```
-
-- CPU 测试：PR 打开或更新时自动运行（`cpu-unittest`、`agent-test`），覆盖参数校验、batch 调度、奖励函数、`Sample` 行为等。
-- GPU 测试：由维护者打标签触发，在自建机器上跑真实的 Megatron 训练和 SGLang 生成：
-
-    | 标签                  | 跑什么                                                 |
-    | --------------------- | ------------------------------------------------------ |
-    | `run-ci-megatron`     | Megatron 训练：dense、MoE、PPO、fully async 等         |
-    | `run-ci-sglang-config`| SGLang 部署配置、多模型、显存 offload 的故障恢复       |
-    | `run-ci-precision`    | 不同并行配置下的数值一致性                             |
-    | `run-ci-ckpt`         | checkpoint 保存和加载                                  |
-    | `run-ci-changed`      | 只跑新增或修改过的测试                                 |
-
-- 新测试文件：CI 直接 `python tests/<file>.py`，所以 pytest 文件结尾要有 `if __name__ == "__main__": raise SystemExit(pytest.main([__file__]))`。
-- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
-
-### 3. 提交
-
-```bash
-git add <文件>                                    # 不要 git add .
-git commit -m "fix: <描述>"
-git push -u origin fix/<主题>
-```
-
-slime 没有强制的标题格式，近期合并的 PR 标题大致是这几种：
-
-```text
-fix: put the critic value head on a VLM's language_model
-Keep a router's existing registration when an engine registers again
-[docs] Refine index page
-[docker] Upgrade SGLang to 0.5.21 and align the CUDA 13 runtime
-```
-
-### 4. 开 PR
-
-在自己的 fork 上点 Compare & pull request，目标选 `THUDM/slime:main`。仓库没有 PR 模板，正文写清楚这几项：
-
-```markdown
-## Problem
-
-Fixes #<issue>. <一两句话：现象是什么，怎么复现。>
-
-## Fix
-
-<为什么会出错，改了哪里。>
-
-## Verification
-
-- `python tests/test_xxx.py`：修复前失败，修复后通过
-- <训练日志或 benchmark：改动前后的数字>
-```
-
-- 优化类 PR：一定要附 benchmark，能被 CI 或常规训练复现。
-- AI 协助：说明哪些部分由 AI 生成，自己读过每一行、跑过测试。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review（最常见）**
-
-```bash
-git checkout fix/<主题>
-# 修改代码
-pre-commit run --all-files
-git add <文件>
-git commit -m "fix: address review comments"
-git push                       # 普通推送，PR 自动出现新提交
-```
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
-git push --force-with-lease    # rebase 改写了历史，必须强制推送
-```
-
-- 没有冲突：rebase 自动完成，直接 push。
-- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。
-- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
 
 <br />
 <br />
@@ -1373,3 +1201,175 @@ if should_run_periodic_action(rollout_id, args.eval_interval, num_rollout_per_ep
 3. 写自己的奖励：`--custom-rm-path xx.rm`，函数签名是 `async def rm(args, sample) -> float`。多轮 agent 用 `--custom-generate-function-path`。
 4. 对比 vLLM 版：[vime 入门笔记](/posts/vime-study-notes/) 用完全相同的超参，可以直接比较两个推理后端。
 5. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/THUDM/slime.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
+```
+
+- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
+- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
+
+### 安装
+
+slime 依赖特定版本的 SGLang、Megatron-LM、TransformerEngine 和 apex，自己编译很慢，官方推荐直接用 Docker 镜像：
+
+```bash
+docker pull slimerl/slime:latest-cu130
+docker run --rm -it --gpus all --ipc=host --shm-size=16g --ulimit memlock=-1 \
+  -v $PWD:/root/slime -w /root/slime slimerl/slime:latest-cu130 bash
+pip install -e . --no-deps               # 镜像里已有全部依赖，只把源码装成可编辑模式
+```
+
+- `cu130`：CUDA 13 镜像，H100、H200、B200 通用；驱动旧时会自动启用 forward-compat。
+- `--ipc=host`、`--shm-size=16g`：Ray object store 和 CUDA IPC 都要用共享内存，默认的 64 MB 不够。
+- `-v $PWD:/root/slime`：把本地源码挂到镜像里 slime 的安装位置，改代码立即生效。
+- `--no-deps`：不让 pip 动镜像里已经配好的 SGLang、torch 版本。
+- 没有 Docker：仓库里的 `build_conda.sh` 会从源码编译 SGLang、Megatron、TE 和 apex，耗时很长。
+
+本机没有 Docker，用 Apptainer 把镜像转成 SIF 文件，再用同样的方式挂载源码：
+
+```bash
+apptainer pull rl_study/sif/slime-cu130.sif docker://slimerl/slime:latest-cu130   # 约 13.9 GB，6 分钟
+apptainer exec --nv --writable-tmpfs \
+  --bind /data/home --bind /tmp --bind /data/home/xli49/lxy/slime:/root/slime \
+  rl_study/sif/slime-cu130.sif bash        # rl_study/scripts/slimebox.sh 就是这条命令
+```
+
+- `--nv`：把宿主机的 NVIDIA 驱动挂进容器。
+- `--writable-tmpfs`：允许在容器里临时写文件，退出后丢弃。
+
+### 检查安装
+
+进入容器后，确认关键包能导入、GPU 可用：
+
+```bash
+python -c "import torch, sglang, megatron.core, transformer_engine; print(torch.__version__, sglang.__version__, torch.cuda.is_available())"
+pip show slime | grep "Editable project location"    # 应是 /root/slime，说明用的是挂载进来的源码
+```
+
+<br />
+<br />
+
+## 提 PR 流程
+
+规则以官方的 `CONTRIBUTING.md` 和 `docs/en/developer_guide/ci.md` 为准。slime 对外部贡献有明确的范围，动手前先看清楚。
+
+### 1. 先看范围，再建分支
+
+slime 和智谱内部版本同步维护，所以只接收两类 PR：
+
+| 欢迎                                            | 暂不接收                                        |
+| ----------------------------------------------- | ----------------------------------------------- |
+| bug 报告、带测试或清晰复现步骤的 bug 修复       | 大范围重构                                      |
+| 有明确 benchmark、能用 CI 或常规训练验证的优化  | 通用数据标准、eval 标准、工具基类这类抽象       |
+|                                                 | 无法用 CI 验证的功能、整套算法复现流程          |
+|                                                 | 对 Megatron 的大幅改动                          |
+
+```bash
+git fetch upstream
+git checkout -b fix/<主题> upstream/main
+```
+
+动手前先查重，已有 open PR 修同一个问题就不要再开：
+
+```text
+https://github.com/THUDM/slime/pulls?q=is%3Apr+<关键词>
+```
+
+### 2. 测试
+
+```bash
+pre-commit install                     # 只需第一次
+pre-commit run --all-files             # ruff、autoflake、isort、black 等
+python tests/<相关测试>.py              # CI 也是这样直接运行测试文件
+```
+
+- CPU 测试：PR 打开或更新时自动运行（`cpu-unittest`、`agent-test`），覆盖参数校验、batch 调度、奖励函数、`Sample` 行为等。
+- GPU 测试：由维护者打标签触发，在自建机器上跑真实的 Megatron 训练和 SGLang 生成：
+
+    | 标签                  | 跑什么                                                 |
+    | --------------------- | ------------------------------------------------------ |
+    | `run-ci-megatron`     | Megatron 训练：dense、MoE、PPO、fully async 等         |
+    | `run-ci-sglang-config`| SGLang 部署配置、多模型、显存 offload 的故障恢复       |
+    | `run-ci-precision`    | 不同并行配置下的数值一致性                             |
+    | `run-ci-ckpt`         | checkpoint 保存和加载                                  |
+    | `run-ci-changed`      | 只跑新增或修改过的测试                                 |
+
+- 新测试文件：CI 直接 `python tests/<file>.py`，所以 pytest 文件结尾要有 `if __name__ == "__main__": raise SystemExit(pytest.main([__file__]))`。
+- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
+
+### 3. 提交
+
+```bash
+git add <文件>                                    # 不要 git add .
+git commit -m "fix: <描述>"
+git push -u origin fix/<主题>
+```
+
+slime 没有强制的标题格式，近期合并的 PR 标题大致是这几种：
+
+```text
+fix: put the critic value head on a VLM's language_model
+Keep a router's existing registration when an engine registers again
+[docs] Refine index page
+[docker] Upgrade SGLang to 0.5.21 and align the CUDA 13 runtime
+```
+
+### 4. 开 PR
+
+在自己的 fork 上点 Compare & pull request，目标选 `THUDM/slime:main`。仓库没有 PR 模板，正文写清楚这几项：
+
+```markdown
+## Problem
+
+Fixes #<issue>. <一两句话：现象是什么，怎么复现。>
+
+## Fix
+
+<为什么会出错，改了哪里。>
+
+## Verification
+
+- `python tests/test_xxx.py`：修复前失败，修复后通过
+- <训练日志或 benchmark：改动前后的数字>
+```
+
+- 优化类 PR：一定要附 benchmark，能被 CI 或常规训练复现。
+- AI 协助：说明哪些部分由 AI 生成，自己读过每一行、跑过测试。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review（最常见）**
+
+```bash
+git checkout fix/<主题>
+# 修改代码
+pre-commit run --all-files
+git add <文件>
+git commit -m "fix: address review comments"
+git push                       # 普通推送，PR 自动出现新提交
+```
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
+git push --force-with-lease    # rebase 改写了历史，必须强制推送
+```
+
+- 没有冲突：rebase 自动完成，直接 push。
+- 有冲突：编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，`git add <文件>`，再 `git rebase --continue`。
+- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
+
+<br />
+<br />

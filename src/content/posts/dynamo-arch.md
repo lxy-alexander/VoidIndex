@@ -1,5 +1,5 @@
 ---
-title: "Dynamo 入门笔记：跑通 KV 路由，看懂一次请求"
+title: "Dynamo 入门：跑通 KV 路由，看懂一次请求"
 description: 面向刚接触 Dynamo 的读者：从源码安装，在一张 A40 上起 1 个 Frontend 和 2 个 vLLM Worker，对比 KV 路由和轮询，再带入真实数值看懂一次请求怎么被分词、打分、转发和回流 KV 事件。
 pubDatetime: 2026-11-08T21:59:05Z
 tags:
@@ -10,7 +10,7 @@ draft: false
 
 >   代码版本：`dynamo@27f6052c`（2026-11-08，`pyproject.toml` 里是 1.7.0）。运行环境：1 × A40 46GB（Slurm 只分到这一张卡，两个 Worker 共用），从源码装的 `ai-dynamo 1.7.0` / `ai-dynamo-runtime 1.7.0`（`maturin develop --release`），`vllm 0.33.0`、`torch 2.14.0`、`flashinfer 0.7.2.post1`、`nixl 1.5.0`。文中数值都来自本机跑通的例子，代码行号对应上述 commit。
 
-## Dynamo Overview
+## 总览
 
 Dynamo 是 NVIDIA 开源的推理编排层：它不替代 vLLM、SGLang、TensorRT-LLM，而是把多个引擎实例组织成一个服务，在它们前面做分词、按 KV cache 选实例、prefill/decode 分离和扩缩容。
 
@@ -130,7 +130,7 @@ flowchart TB
 <br />
 <br />
 
-## 代码在哪里
+## 代码结构
 
 ```text
 dynamo/
@@ -154,187 +154,6 @@ dynamo/
 ├── lib/bindings/python/                    # PyO3 扩展 dynamo._core，用 maturin 构建
 └── examples/backends/vllm/launch/agg_router.sh   # 本例参照的官方脚本
 ```
-
-<br />
-<br />
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/ai-dynamo/dynamo.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
-```
-
-- 先装 `git-lfs`：仓库里的测试媒体和性能 trace 是 LFS 文件，配置了 LFS 过滤器却没装 `git-lfs` 时，检出会做到一半失败，工作区停在新旧两个版本混在一起的状态。
-- 本机没有 `git-lfs`：在旁边新建一个 worktree，检出时临时关掉过滤器，LFS 文件留成指针文件，不影响编译和运行：
-
-    ```bash
-    git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false \
-        worktree add --detach ../dynamo-main upstream/main
-    ```
-
-### 安装
-
-官方的 Python 开发构建（`AGENTS.md`）：
-
-```bash
-uv venv .venv && source .venv/bin/activate
-uv pip install pip 'maturin[patchelf]'
-cd lib/bindings/python
-maturin develop --uv --release --features kv-indexer,slot-tracker,select-service,mm-routing,ais-forward-pass,request-trace-s3
-cd -
-uv pip install -e lib/gpu_memory_service
-uv pip install -e '.[vllm]'          # 装 vllm 0.33.0 等引擎依赖
-```
-
-| 步骤 | 做什么 | 本机耗时 |
-| ---- | ------ | -------- |
-| `maturin develop` | 编 Rust 写的 `dynamo._core`（约 820 个 crate），装进 venv | release 14 分 22 秒（8 个 CPU） |
-| `uv pip install -e lib/gpu_memory_service` | 显存管理的小扩展 | 几秒 |
-| `uv pip install -e '.[vllm]'` | 可编辑安装 `components/src/dynamo`，并装 vLLM | 39 s（包都在缓存里） |
-
-- `--release`：官方命令里没有，默认是 debug 构建，Rust 部分不优化。分词、路由都在 Rust 里，测延迟一定要加。
-- `--features`：和 CI 发布的 wheel 一致。少了 `kv-indexer`，起独立 indexer 的测试会失败。
-- 改了 `components/src/` 下的 Python 代码立即生效；改了 Rust 代码要重新跑 `maturin develop`。
-
-本机没有 sudo，官方要求的系统包（`build-essential libclang-dev protobuf-compiler ...`）一个也装不了，换成下面这些：
-
-| 缺什么 | 报错 | 本机的解决办法 |
-| ------ | ---- | -------------- |
-| C++ 编译器 | `failed to find tool "c++"` | 借用 conda 环境里的 gcc/g++ 13（激活后有 `CC`、`CXX`），并 `unset CONDA_PREFIX`，否则 maturin 报 `Both VIRTUAL_ENV and CONDA_PREFIX are set` |
-| protoc ≥ 3.15 | 编 gRPC 相关 crate 时找不到 protoc | 下载 protoc 30.2 的 zip 解压到 `~/.local/protoc30`，设 `PROTOC` |
-| libclang | `nixl-sys` 的 bindgen：`Unable to find libclang` | `uv pip install libclang`，设 `LIBCLANG_PATH` 指向它的 `native/` 目录 |
-| C++ 头文件（给 libclang 用） | `'cstdint' file not found` | 把 `g++ -E -v` 打印的头文件目录逐个加进 `BINDGEN_EXTRA_CLANG_ARGS="-isystem ..."` |
-| 新版 libstdc++ | 运行时 `GLIBCXX_3.4.30 not found` | 运行前 `export LD_LIBRARY_PATH=<conda 环境>/lib` |
-| FlashInfer JIT 的编译器 | 第一次起 vLLM 时 `cannot execute 'cc1plus'` | 运行前设 `CC=<conda>/bin/gcc CXX=<conda>/bin/g++`，FlashInfer 用 `CC` 作为 nvcc 的 `-ccbin` |
-
-完整脚本：`rl_study/scripts/dynamo_build.sh`（debug）和 `dynamo_build_release.sh`（release）。
-
-### 检查安装
-
-```bash
-python -m dynamo.frontend --help | head -3
-LD_LIBRARY_PATH=<conda 环境>/lib python -c "import vllm, dynamo._core; print(vllm.__version__)"
-# 0.33.0
-```
-
-<br />
-<br />
-
-# 提PR
-
-<br />
-<br />
-
-## 提 PR 流程
-
-规则以官方的 `CONTRIBUTING.md`、`docs/fern/pages/community/contributing/`（contribution-flow、code-quality）和 `.github/pull_request_template.md` 为准。
-
-### 1. 建分支
-
-小改动（错别字、文档、小 bug）可以直接开 PR；大改动、新功能、跨多个组件的改动，先开 Contribution Request issue，等维护者同意；改公共 API 或通信架构要写 DEP（Dynamo Enhancement Proposal）。
-
-```bash
-git fetch upstream
-git switch main
-git rebase upstream/main
-git switch -c <你的名字>/fix-router-timeout     # 一个分支只做一件事
-```
-
-动手前先查重：
-
-```text
-https://github.com/ai-dynamo/dynamo/pulls?q=is%3Apr+<关键词>
-```
-
-### 2. 测试
-
-```bash
-pre-commit install                       # 只需第一次
-pre-commit run                           # 只查改动的文件
-cargo fmt && cargo clippy                # 改了 Rust 代码
-cargo test --locked --all-targets        # Rust 测试
-pytest tests/<目录>                      # Python 测试，挑和改动相关的
-```
-
-- 测试命令和结果要写进 PR 的 **Validation** 一节。
-- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
-
-### 3. 提交
-
-```bash
-git add <文件>
-git commit -s -m "fix(router): handle streaming timeout"    # -s 加 DCO 的 Signed-off-by
-git push -u origin <你的名字>/fix-router-timeout
-```
-
-- 标题用 Conventional Commits，可以加范围：`feat(router): ...`、`fix(frontend): ...`、`docs: ...`。
-- 类型：`feat`、`fix`、`docs`、`test`、`ci`、`refactor`、`perf`、`chore`、`build`、`style`、`revert`。
-- DCO 和签名是两回事：`-s` 只加 `Signed-off-by`。fork 来的 PR 想自动触发 CI，每个提交还要有 GitHub 显示为 `Verified` 的签名。
-
-### 4. 开 PR
-
-目标选 `ai-dynamo/dynamo:main`，正文照模板的各节写：
-
-```markdown
-### Overview
-
-<一两句话：问题是什么、怎么修。>
-
-### Key Changes
-
-- `lib/kv-router/src/...`: <改了什么、为什么>
-
-### Validation
-
-<测试命令和结果：修复前失败，修复后通过>
-
-### Issues and Ongoing Work
-
-- Closes #<issue>
-
-<details>
-<summary>Pull Request Checklist</summary>
-
-- [x] I used Dynamo's `/pr-checklist` skill.
-
-</details>
-```
-
-- `Closes #`：`PR Issue Link` 检查会看这一行。
-- `/pr-checklist`：仓库自带的 agent skill（`.agents/skills/pr-checklist`），检查设计、测试、代码质量和 PR 描述。
-- 跑 CI：满足条件的 fork PR 会自动收到 `/ok to test`；否则等维护者看过当前提交后评论 `/ok to test <sha>`，不要反复推送没改动的提交。
-- review 的人：按改动的目录自动指定，`codeowners` 检查失败时看 `.github/codeowners/README.md`。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review**
-
-```bash
-git switch <你的名字>/fix-router-timeout
-# 修改代码
-pre-commit run
-git add <文件>
-git commit -s -m "fix(router): address review comments"
-git push
-```
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main
-git push --force-with-lease
-```
-
-- 有冲突：编辑冲突文件，`git add <文件>`，再 `git rebase --continue`。
-- 想放弃：`git rebase --abort`。
 
 <br />
 <br />
@@ -851,3 +670,184 @@ async fn apply_event(&self, event: RouterEvent)  // BlockStored：在这个 Work
 2. 试 prefill/decode 分离：`examples/backends/vllm/launch/disagg_router.sh`，KV 经 NIXL 从 prefill Worker 传给 decode Worker。
 3. 在 RL 里用：NeMo RL 的 `grpo_math_1B_dynamo.yaml` 让 Dynamo 托管生成，见 [NeMo RL 入门笔记](09_nemo-rl.md)。
 4. KV cache 放不下时，用 KVBM 把块下放到 CPU 内存和磁盘，或者用 [Mooncake](08_mooncake.md) 做跨实例共享的 KV 存储。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/ai-dynamo/dynamo.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
+```
+
+- 先装 `git-lfs`：仓库里的测试媒体和性能 trace 是 LFS 文件，配置了 LFS 过滤器却没装 `git-lfs` 时，检出会做到一半失败，工作区停在新旧两个版本混在一起的状态。
+- 本机没有 `git-lfs`：在旁边新建一个 worktree，检出时临时关掉过滤器，LFS 文件留成指针文件，不影响编译和运行：
+
+    ```bash
+    git -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false \
+        worktree add --detach ../dynamo-main upstream/main
+    ```
+
+### 安装
+
+官方的 Python 开发构建（`AGENTS.md`）：
+
+```bash
+uv venv .venv && source .venv/bin/activate
+uv pip install pip 'maturin[patchelf]'
+cd lib/bindings/python
+maturin develop --uv --release --features kv-indexer,slot-tracker,select-service,mm-routing,ais-forward-pass,request-trace-s3
+cd -
+uv pip install -e lib/gpu_memory_service
+uv pip install -e '.[vllm]'          # 装 vllm 0.33.0 等引擎依赖
+```
+
+| 步骤 | 做什么 | 本机耗时 |
+| ---- | ------ | -------- |
+| `maturin develop` | 编 Rust 写的 `dynamo._core`（约 820 个 crate），装进 venv | release 14 分 22 秒（8 个 CPU） |
+| `uv pip install -e lib/gpu_memory_service` | 显存管理的小扩展 | 几秒 |
+| `uv pip install -e '.[vllm]'` | 可编辑安装 `components/src/dynamo`，并装 vLLM | 39 s（包都在缓存里） |
+
+- `--release`：官方命令里没有，默认是 debug 构建，Rust 部分不优化。分词、路由都在 Rust 里，测延迟一定要加。
+- `--features`：和 CI 发布的 wheel 一致。少了 `kv-indexer`，起独立 indexer 的测试会失败。
+- 改了 `components/src/` 下的 Python 代码立即生效；改了 Rust 代码要重新跑 `maturin develop`。
+
+本机没有 sudo，官方要求的系统包（`build-essential libclang-dev protobuf-compiler ...`）一个也装不了，换成下面这些：
+
+| 缺什么 | 报错 | 本机的解决办法 |
+| ------ | ---- | -------------- |
+| C++ 编译器 | `failed to find tool "c++"` | 借用 conda 环境里的 gcc/g++ 13（激活后有 `CC`、`CXX`），并 `unset CONDA_PREFIX`，否则 maturin 报 `Both VIRTUAL_ENV and CONDA_PREFIX are set` |
+| protoc ≥ 3.15 | 编 gRPC 相关 crate 时找不到 protoc | 下载 protoc 30.2 的 zip 解压到 `~/.local/protoc30`，设 `PROTOC` |
+| libclang | `nixl-sys` 的 bindgen：`Unable to find libclang` | `uv pip install libclang`，设 `LIBCLANG_PATH` 指向它的 `native/` 目录 |
+| C++ 头文件（给 libclang 用） | `'cstdint' file not found` | 把 `g++ -E -v` 打印的头文件目录逐个加进 `BINDGEN_EXTRA_CLANG_ARGS="-isystem ..."` |
+| 新版 libstdc++ | 运行时 `GLIBCXX_3.4.30 not found` | 运行前 `export LD_LIBRARY_PATH=<conda 环境>/lib` |
+| FlashInfer JIT 的编译器 | 第一次起 vLLM 时 `cannot execute 'cc1plus'` | 运行前设 `CC=<conda>/bin/gcc CXX=<conda>/bin/g++`，FlashInfer 用 `CC` 作为 nvcc 的 `-ccbin` |
+
+完整脚本：`rl_study/scripts/dynamo_build.sh`（debug）和 `dynamo_build_release.sh`（release）。
+
+### 检查安装
+
+```bash
+python -m dynamo.frontend --help | head -3
+LD_LIBRARY_PATH=<conda 环境>/lib python -c "import vllm, dynamo._core; print(vllm.__version__)"
+# 0.33.0
+```
+
+<br />
+<br />
+
+# 提PR
+
+<br />
+<br />
+
+## 提 PR 流程
+
+规则以官方的 `CONTRIBUTING.md`、`docs/fern/pages/community/contributing/`（contribution-flow、code-quality）和 `.github/pull_request_template.md` 为准。
+
+### 1. 建分支
+
+小改动（错别字、文档、小 bug）可以直接开 PR；大改动、新功能、跨多个组件的改动，先开 Contribution Request issue，等维护者同意；改公共 API 或通信架构要写 DEP（Dynamo Enhancement Proposal）。
+
+```bash
+git fetch upstream
+git switch main
+git rebase upstream/main
+git switch -c <你的名字>/fix-router-timeout     # 一个分支只做一件事
+```
+
+动手前先查重：
+
+```text
+https://github.com/ai-dynamo/dynamo/pulls?q=is%3Apr+<关键词>
+```
+
+### 2. 测试
+
+```bash
+pre-commit install                       # 只需第一次
+pre-commit run                           # 只查改动的文件
+cargo fmt && cargo clippy                # 改了 Rust 代码
+cargo test --locked --all-targets        # Rust 测试
+pytest tests/<目录>                      # Python 测试，挑和改动相关的
+```
+
+- 测试命令和结果要写进 PR 的 **Validation** 一节。
+- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
+
+### 3. 提交
+
+```bash
+git add <文件>
+git commit -s -m "fix(router): handle streaming timeout"    # -s 加 DCO 的 Signed-off-by
+git push -u origin <你的名字>/fix-router-timeout
+```
+
+- 标题用 Conventional Commits，可以加范围：`feat(router): ...`、`fix(frontend): ...`、`docs: ...`。
+- 类型：`feat`、`fix`、`docs`、`test`、`ci`、`refactor`、`perf`、`chore`、`build`、`style`、`revert`。
+- DCO 和签名是两回事：`-s` 只加 `Signed-off-by`。fork 来的 PR 想自动触发 CI，每个提交还要有 GitHub 显示为 `Verified` 的签名。
+
+### 4. 开 PR
+
+目标选 `ai-dynamo/dynamo:main`，正文照模板的各节写：
+
+```markdown
+### Overview
+
+<一两句话：问题是什么、怎么修。>
+
+### Key Changes
+
+- `lib/kv-router/src/...`: <改了什么、为什么>
+
+### Validation
+
+<测试命令和结果：修复前失败，修复后通过>
+
+### Issues and Ongoing Work
+
+- Closes #<issue>
+
+<details>
+<summary>Pull Request Checklist</summary>
+
+- [x] I used Dynamo's `/pr-checklist` skill.
+
+</details>
+```
+
+- `Closes #`：`PR Issue Link` 检查会看这一行。
+- `/pr-checklist`：仓库自带的 agent skill（`.agents/skills/pr-checklist`），检查设计、测试、代码质量和 PR 描述。
+- 跑 CI：满足条件的 fork PR 会自动收到 `/ok to test`；否则等维护者看过当前提交后评论 `/ok to test <sha>`，不要反复推送没改动的提交。
+- review 的人：按改动的目录自动指定，`codeowners` 检查失败时看 `.github/codeowners/README.md`。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review**
+
+```bash
+git switch <你的名字>/fix-router-timeout
+# 修改代码
+pre-commit run
+git add <文件>
+git commit -s -m "fix(router): address review comments"
+git push
+```
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main
+git push --force-with-lease
+```
+
+- 有冲突：编辑冲突文件，`git add <文件>`，再 `git rebase --continue`。
+- 想放弃：`git rebase --abort`。
+
+<br />
+<br />

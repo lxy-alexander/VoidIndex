@@ -11,7 +11,7 @@ draft: false
 
 > 代码版本：`verl@8e48d72d`（2026-10-29，0.10.0.dev0）。运行环境：4 × H100 NVL 94GB，`torch 2.13.0+cu130`、`vllm 0.32.0`、`TransferQueue 0.1.11`。文中数值都来自本机跑通的 GRPO 例子，代码行号对应上述 commit。
 
-## verl Overview
+## 总览
 
 verl（Volcano Engine RL）是字节 Seed 开源的大模型强化学习框架：用模型生成回答，给回答打分，再用强化学习更新模型参数，如此循环。
 
@@ -263,7 +263,7 @@ flowchart TB
 <br />
 <br />
 
-## 代码在哪里
+## 代码结构
 
 ```text
 verl/
@@ -281,194 +281,6 @@ verl/
 ├── checkpoint_engine/               # 训练到推理的权重同步
 └── utils/reward_score/gsm8k.py      # 例子用的 GSM8K 奖励
 ```
-
-<br />
-<br />
-
-## 安装
-
-### 更新代码
-
-`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
-
-```bash
-git remote add upstream https://github.com/verl-project/verl.git   # 只需第一次
-git fetch upstream
-git checkout main
-git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
-```
-
-- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
-- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
-
-### 安装
-
-官方推荐用 uv，仓库自带 `uv.lock`：
-
-```bash
-uv sync --python 3.12 --locked --extra fsdp --extra vllm --extra test
-source .venv/bin/activate
-```
-
-- `uv sync`：把 `.venv` 同步成和 `uv.lock` 完全一致，按顺序做这些事：
-
-  | 步骤 | 做什么 |
-  | --- | --- |
-  | 1. 检查 lock | 确认 `uv.lock` 和 `pyproject.toml` 一致，不一致就报错退出 |
-  | 2. 准备 Python | `.venv` 不是 3.12 或解释器失效时删掉重建，必要时 uv 自己下载 3.12 |
-  | 3. 选包 | 从 lock 里挑出基础依赖，加上三个 extra 需要的包 |
-  | 4. 下载 | wheel 缓存到 `~/.cache/uv`，已有的跳过 |
-  | 5. 安装 | 装进 `.venv`，优先从缓存硬链接，第二次很快 |
-  | 6. 装 verl 本身 | 可编辑模式，`.venv` 里只放一个指向源码的链接 |
-  | 7. 删多余的包 | lock 里没有的包会被卸载，比如手动 `pip install` 的 |
-
-- `--python 3.12`：指定 Python 版本。
-- `--locked`：严格按 lock 安装，不会悄悄改写 `uv.lock`。
-- `--extra`：fsdp 装 torch、flash-attn，vllm 装 vllm、transformers，test 装 pytest 和 pre-commit。
-- `source .venv/bin/activate`：`uv sync` 不会激活环境，要自己激活。
-- 不需要编译：verl 是纯 Python，以可编辑模式安装，改代码立即生效；torch、vllm、flash-attn 都是预编译的 wheel。verl 里少量 Triton kernel 在第一次运行时自动编译，默认配置用不到。
-
-### 检查安装
-
-更新代码后，先检查环境要不要同步（只检查，不改环境）：
-
-```bash
-uv sync --check --locked --extra fsdp --extra vllm --extra test
-```
-
-确认关键包能导入、GPU 可用：
-
-```bash
-python -c "import torch, vllm, flash_attn, transformers; print(torch.__version__, vllm.__version__, transformers.__version__, torch.cuda.is_available())"
-```
-
-
-
-# 提PR
-
-<br />
-<br />
-
-## 提 PR 流程
-
-规则以官方的 `CONTRIBUTING.md`、`AGENTS.md` 和 `.github/PULL_REQUEST_TEMPLATE.md` 为准。
-
-### 1. 建分支
-
-```bash
-git fetch upstream
-git checkout -b fix/<主题> upstream/main    # bug 用 fix/，功能用 feat/，性能用 perf/
-```
-
-动手前先查重，已有 open PR 修同一个问题就不要再开：
-
-```text
-https://github.com/verl-project/verl/pulls?q=is%3Apr+<关键词>
-```
-
-### 2. 测试
-
-```bash
-pre-commit install                           # 只需第一次，之后每次 commit 自动检查
-pre-commit run --all-files                   # 检查所有文件
-python -m pytest tests/<目录>/test_xxx.py -v  # 跑相关测试
-```
-
-- pre-commit：ruff、mypy、license、配置生成等检查，CI 必须通过。
-- 测试位置：和源码目录对应，`verl/models/...` 的测试放 `tests/models/...`。只用 CPU 的测试文件名以 `_on_cpu.py` 结尾。
-- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
-
-### 3. 提交
-
-```bash
-git add <文件>                            # 不要 git add .
-git commit -s -m "[模块] 类型: <描述>"     # -s 自动加 Signed-off-by，-m 写提交标题
-git push -u origin fix/<主题>
-```
-
-commit 标题和 PR 标题用同一套格式，CI 会检查：
-
-```text
-[模块] 类型: 描述
-
-[model] fix: restore per-sequence conv in Qwen3.5 GDN under packed micro-batches
-[BREAKING][fsdp, megatron] feat: dynamic batching
-```
-
-- 模块：`fsdp`、`megatron`、`vllm`、`sglang`、`rollout`、`trainer`、`worker`、`model`、`algo`、`reward`、`data`、`cfg`、`doc`、`ci`、`perf`、`misc` 等，多个用逗号分隔。
-- 类型：`feat`、`fix`、`refactor`、`chore`、`test`。
-- 破坏 API：开头加 `[BREAKING]`。
-- 签名：配置 `commit.gpgsign=true` 和 SSH 签名密钥，并把密钥加到 GitHub 的 Signing keys，提交才会显示 Verified。提交邮箱也必须是 GitHub 账号里已验证的。
-
-### 4. 开 PR
-
-在自己的 fork 上点 Compare & pull request，目标选 `verl-project/verl:main`。正文照抄 PR 模板的各节：
-
-```markdown
-### What does this PR do?
-
-Fixes #<issue>. <一两句话：问题是什么、怎么修。>
-
-### Checklist Before Starting
-
-- [x] Search for similar PRs. Paste at least one query link here: <查重链接>
-- [x] Format the PR title as `[{modules}] {type}: {description}`
-
-### Test
-
-<测试命令和结果：修复前失败，修复后通过>
-
-### API and Usage Example
-
-No API change.
-
-### Design & Code Changes
-
-- `verl/xxx.py`: <改了什么、为什么>
-
-### Checklist Before Submitting
-
-- [x] Read the Contribute Guide.
-- [x] Apply pre-commit checks.
-- [x] Add unit or end-to-end test(s) to the CI workflow.
-```
-
-- 占位文字：CI 会比对正文前 5 行，没改模板的占位文字就会失败。
-- 勾选框：只勾真正做过的项。
-- 换行：每段、每个列表项写成一行，GitHub 会把段内换行显示成空格。
-- AI 协助：按 `AGENTS.md`，要说明不是重复 PR、写出测试命令和结果，并声明用了 AI。
-- 跑 CI：PR 开好后，到 Slack 的 `ci-request` 频道请维护者批准运行。
-
-### 5. 更新 PR
-
-**情况 1：改代码或回应 review（最常见）**
-
-```bash
-git checkout fix/<主题>
-# 修改代码
-pre-commit run --all-files
-git add <文件>
-git commit -s -m "[model] fix: address review comments"
-git push                       # 普通推送，PR 自动出现新提交
-```
-
-**情况 2：上游 main 更新了，需要同步或解决冲突**
-
-```bash
-git fetch upstream
-git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
-git push --force-with-lease    # rebase 改写了历史，必须强制推送
-```
-
-- 没有冲突：rebase 自动完成，不用 add，也不用 commit，直接 push。
-- 有冲突：rebase 会暂停。编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，然后：
-
-  ```bash
-  git add <文件>              # 标记冲突已解决
-  git rebase --continue       # 继续 rebase，不用 commit
-  git push --force-with-lease
-  ```
-- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
 
 <br />
 <br />
@@ -689,10 +501,10 @@ sequenceDiagram
 代码位置：`main_ppo.py:170`
 
 ```python
-@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)  # 读 ppo_trainer.yaml，命令行参数覆盖默认值
+@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)  # 装饰器从 ppo_trainer.yaml读取，CLI参数覆盖默认值. 
 
-def main(config):  # 训练入口
-    auto_set_device(config)  # 根据环境自动选择 cuda / npu
+def main(config):  # 训练入口 config 是完整 OmegaConf 配置树。
+    auto_set_device(config)  # 探测硬件：CUDA 保持 cuda，Ascend 则改成 npu。你的环境是 4×GPU → 仍是 trainer.device=cuda。
     validate_config(config=config, use_reference_policy=need_reference_policy(config), use_critic=need_critic(config))  # 检查配置是否合法；开了 KL loss → 需要 ref 模型；GRPO → 不需要 critic
     if config.trainer.use_v1:  # 走 V1 训练器
         run_ppo(config, task_runner_class=TaskRunnerV1)  # ray.init，再交给 TaskRunnerV1
@@ -1379,3 +1191,189 @@ self.global_steps += 1  # 进入下一步
 2. 试 `colocate_async` 和 `separate_async`，看生成和训练怎么重叠。
 3. 写自己的奖励：`reward.custom_reward_function.path=xx.py`，函数签名是 `compute_score(data_source, solution_str, ground_truth, extra_info)`。
 4. 对比其他框架：[开源 LLM 强化学习框架](/posts/llm-rl-frameworks/)。
+
+## 安装
+
+### 更新代码
+
+`origin` 是自己的 fork，最新代码在官方仓库，所以先把官方仓库加成 `upstream`：
+
+```bash
+git remote add upstream https://github.com/verl-project/verl.git   # 只需第一次
+git fetch upstream
+git checkout main
+git rebase --autostash upstream/main     # 未提交的改动自动收起，做完再放回
+```
+
+- `--autostash`：有未提交的改动时，rebase 会拒绝执行；加上它就自动 stash 和 pop。
+- 冲突：两边改了同一处时照样会冲突，改好后 `git add`，再 `git rebase --continue`。
+
+### 安装
+
+官方推荐用 uv，仓库自带 `uv.lock`：
+
+```bash
+uv sync --python 3.12 --locked --extra fsdp --extra vllm --extra test
+source .venv/bin/activate
+```
+
+- `uv sync`：把 `.venv` 同步成和 `uv.lock` 完全一致，按顺序做这些事：
+
+  | 步骤 | 做什么 |
+  | --- | --- |
+  | 1. 检查 lock | 确认 `uv.lock` 和 `pyproject.toml` 一致，不一致就报错退出 |
+  | 2. 准备 Python | `.venv` 不是 3.12 或解释器失效时删掉重建，必要时 uv 自己下载 3.12 |
+  | 3. 选包 | 从 lock 里挑出基础依赖，加上三个 extra 需要的包 |
+  | 4. 下载 | wheel 缓存到 `~/.cache/uv`，已有的跳过 |
+  | 5. 安装 | 装进 `.venv`，优先从缓存硬链接，第二次很快 |
+  | 6. 装 verl 本身 | 可编辑模式，`.venv` 里只放一个指向源码的链接 |
+  | 7. 删多余的包 | lock 里没有的包会被卸载，比如手动 `pip install` 的 |
+
+- `--python 3.12`：指定 Python 版本。
+- `--locked`：严格按 lock 安装，不会悄悄改写 `uv.lock`。
+- `--extra`：fsdp 装 torch、flash-attn，vllm 装 vllm、transformers，test 装 pytest 和 pre-commit。
+- `source .venv/bin/activate`：`uv sync` 不会激活环境，要自己激活。
+- 不需要编译：verl 是纯 Python，以可编辑模式安装，改代码立即生效；torch、vllm、flash-attn 都是预编译的 wheel。verl 里少量 Triton kernel 在第一次运行时自动编译，默认配置用不到。
+
+### 检查安装
+
+更新代码后，先检查环境要不要同步（只检查，不改环境）：
+
+```bash
+uv sync --check --locked --extra fsdp --extra vllm --extra test
+```
+
+确认关键包能导入、GPU 可用：
+
+```bash
+python -c "import torch, vllm, flash_attn, transformers; print(torch.__version__, vllm.__version__, transformers.__version__, torch.cuda.is_available())"
+```
+
+
+
+<br />
+<br />
+
+## 提 PR 流程
+
+规则以官方的 `CONTRIBUTING.md`、`AGENTS.md` 和 `.github/PULL_REQUEST_TEMPLATE.md` 为准。
+
+### 1. 建分支
+
+```bash
+git fetch upstream
+git checkout -b fix/<主题> upstream/main    # bug 用 fix/，功能用 feat/，性能用 perf/
+```
+
+动手前先查重，已有 open PR 修同一个问题就不要再开：
+
+```text
+https://github.com/verl-project/verl/pulls?q=is%3Apr+<关键词>
+```
+
+### 2. 测试
+
+```bash
+pre-commit install                           # 只需第一次，之后每次 commit 自动检查
+pre-commit run --all-files                   # 检查所有文件
+python -m pytest tests/<目录>/test_xxx.py -v  # 跑相关测试
+```
+
+- pre-commit：ruff、mypy、license、配置生成等检查，CI 必须通过。
+- 测试位置：和源码目录对应，`verl/models/...` 的测试放 `tests/models/...`。只用 CPU 的测试文件名以 `_on_cpu.py` 结尾。
+- 修复前后各跑一次：修复前失败、修复后通过，才能证明测试有效。
+
+### 3. 提交
+
+```bash
+git add <文件>                            # 不要 git add .
+git commit -s -m "[模块] 类型: <描述>"     # -s 自动加 Signed-off-by，-m 写提交标题
+git push -u origin fix/<主题>
+```
+
+commit 标题和 PR 标题用同一套格式，CI 会检查：
+
+```text
+[模块] 类型: 描述
+
+[model] fix: restore per-sequence conv in Qwen3.5 GDN under packed micro-batches
+[BREAKING][fsdp, megatron] feat: dynamic batching
+```
+
+- 模块：`fsdp`、`megatron`、`vllm`、`sglang`、`rollout`、`trainer`、`worker`、`model`、`algo`、`reward`、`data`、`cfg`、`doc`、`ci`、`perf`、`misc` 等，多个用逗号分隔。
+- 类型：`feat`、`fix`、`refactor`、`chore`、`test`。
+- 破坏 API：开头加 `[BREAKING]`。
+- 签名：配置 `commit.gpgsign=true` 和 SSH 签名密钥，并把密钥加到 GitHub 的 Signing keys，提交才会显示 Verified。提交邮箱也必须是 GitHub 账号里已验证的。
+
+### 4. 开 PR
+
+在自己的 fork 上点 Compare & pull request，目标选 `verl-project/verl:main`。正文照抄 PR 模板的各节：
+
+```markdown
+### What does this PR do?
+
+Fixes #<issue>. <一两句话：问题是什么、怎么修。>
+
+### Checklist Before Starting
+
+- [x] Search for similar PRs. Paste at least one query link here: <查重链接>
+- [x] Format the PR title as `[{modules}] {type}: {description}`
+
+### Test
+
+<测试命令和结果：修复前失败，修复后通过>
+
+### API and Usage Example
+
+No API change.
+
+### Design & Code Changes
+
+- `verl/xxx.py`: <改了什么、为什么>
+
+### Checklist Before Submitting
+
+- [x] Read the Contribute Guide.
+- [x] Apply pre-commit checks.
+- [x] Add unit or end-to-end test(s) to the CI workflow.
+```
+
+- 占位文字：CI 会比对正文前 5 行，没改模板的占位文字就会失败。
+- 勾选框：只勾真正做过的项。
+- 换行：每段、每个列表项写成一行，GitHub 会把段内换行显示成空格。
+- AI 协助：按 `AGENTS.md`，要说明不是重复 PR、写出测试命令和结果，并声明用了 AI。
+- 跑 CI：PR 开好后，到 Slack 的 `ci-request` 频道请维护者批准运行。
+
+### 5. 更新 PR
+
+**情况 1：改代码或回应 review（最常见）**
+
+```bash
+git checkout fix/<主题>
+# 修改代码
+pre-commit run --all-files
+git add <文件>
+git commit -s -m "[model] fix: address review comments"
+git push                       # 普通推送，PR 自动出现新提交
+```
+
+**情况 2：上游 main 更新了，需要同步或解决冲突**
+
+```bash
+git fetch upstream
+git rebase upstream/main       # 把你的提交搬到 upstream 最新代码后面
+git push --force-with-lease    # rebase 改写了历史，必须强制推送
+```
+
+- 没有冲突：rebase 自动完成，不用 add，也不用 commit，直接 push。
+- 有冲突：rebase 会暂停。编辑冲突文件，删掉 `<<<<<<<`、`=======`、`>>>>>>>` 标记，然后：
+
+  ```bash
+  git add <文件>              # 标记冲突已解决
+  git rebase --continue       # 继续 rebase，不用 commit
+  git push --force-with-lease
+  ```
+- 想放弃：`git rebase --abort`，回到 rebase 之前的状态。
+
+<br />
+<br />
